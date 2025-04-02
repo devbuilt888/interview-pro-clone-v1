@@ -14,8 +14,8 @@ declare module 'react-chat-plugin' {
       messages: ChatMessage[];
       userId: number;
       onSendMessage: (message: string) => void;
-      width?: string;
-      height?: string;
+      width: string;
+      height: string;
       style?: React.CSSProperties;
     };
   

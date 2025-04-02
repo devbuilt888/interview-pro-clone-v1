@@ -14,7 +14,13 @@ interface ChatBoxProps {
   style?: React.CSSProperties;
 }
 
-const ChatBox = dynamic<ChatBoxProps>(() => import('react-chat-plugin'), { ssr: false });
+// Use a more explicit loader function that returns the default export
+const ChatBox = dynamic(() => 
+  import('react-chat-plugin').then((mod) => {
+    return mod.default as React.ComponentType<ChatBoxProps>;
+  }),
+  { ssr: false }
+);
 
 type ChatProps = {
   initialText?: string;

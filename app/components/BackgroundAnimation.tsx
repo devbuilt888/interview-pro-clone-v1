@@ -277,14 +277,19 @@ const BackgroundAnimation = () => {
 
     // Return cleanup function
     return () => {
+      window.removeEventListener('resize', handleResize);
+      
       // Use the saved container reference
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
       renderer.dispose();
       
+      // Store a copy of the cubes array to avoid the ref warning
+      const cubes = [...cubesRef.current];
+      
       // Clean up other resources
-      cubesRef.current.forEach(cube => {
+      cubes.forEach(cube => {
         if (cube.geometry) cube.geometry.dispose();
         if (cube.material) {
           if (Array.isArray(cube.material)) {
