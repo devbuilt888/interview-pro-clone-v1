@@ -31,9 +31,28 @@ export async function POST(req: Request) {
     }
 
     // Create a file object that OpenAI can accept
-    const audioFileObj = new File([audioFile], 'audio.wav', {
-      type: 'audio/wav',
+    // Keep the webm format which is better supported by Whisper
+    const audioFileObj = new File([audioFile], 'recording.webm', {
+      type: 'audio/webm',
     });
+    
+    console.log('Converting audio for OpenAI Whisper API...');
+
+    // Add diagnostic information
+    try {
+      const buffer = await audioFile.arrayBuffer();
+      console.log(`Audio buffer size: ${buffer.byteLength} bytes`);
+      
+      // Check if buffer contains audio data (should have non-zero values)
+      const dataView = new DataView(buffer);
+      let nonZeroCount = 0;
+      for (let i = 0; i < Math.min(100, buffer.byteLength); i++) {
+        if (dataView.getUint8(i) !== 0) nonZeroCount++;
+      }
+      console.log(`First 100 bytes contain ${nonZeroCount} non-zero values`);
+    } catch (error) {
+      console.error('Error checking audio buffer:', error);
+    }
 
     console.log('Sending audio to OpenAI Whisper API for transcription...');
     

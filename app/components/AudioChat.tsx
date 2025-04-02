@@ -272,35 +272,101 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     const initMediaRecorder = async () => {
       try {
         console.log('Initializing MediaRecorder...');
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // Request permission for audio capture
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
         console.log('Audio stream obtained:', stream.active);
         
-        mediaRecorder.current = new MediaRecorder(stream);
-        console.log('MediaRecorder created:', mediaRecorder.current.state);
-
-        mediaRecorder.current.ondataavailable = (event) => {
-          console.log('Data available event:', event.data.size);
-          if (event.data.size > 0) {
+        // Determine the supported mime type
+        const mimeTypes = [
+          'audio/webm',
+          'audio/webm;codecs=opus',
+          'audio/mp4',
+          'audio/ogg;codecs=opus',
+          'audio/wav',
+          ''  // Browser default
+        ];
+        
+        let selectedMimeType = '';
+        for (const type of mimeTypes) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            selectedMimeType = type;
+            break;
+          }
+        }
+        
+        console.log('Using MIME type:', selectedMimeType || 'browser default');
+        
+        // Create the recorder with options
+        const recorderOptions = selectedMimeType ? { mimeType: selectedMimeType } : {};
+        const recorder = new MediaRecorder(stream, recorderOptions);
+        
+        console.log('MediaRecorder created with state:', recorder.state);
+        
+        // Save the recorder to the ref
+        mediaRecorder.current = recorder;
+        
+        // Clear audio chunks
+        audioChunks.current = [];
+        
+        // Set up event handlers
+        recorder.ondataavailable = (event) => {
+          console.log('Data available event fired, data size:', event.data.size);
+          if (event.data && event.data.size > 0) {
             audioChunks.current.push(event.data);
           }
         };
 
-        mediaRecorder.current.onstart = () => {
-          console.log('MediaRecorder started');
+        recorder.onstart = () => {
+          console.log('MediaRecorder started recording');
           audioChunks.current = [];
         };
+        
+        recorder.onpause = () => {
+          console.log('MediaRecorder paused');
+        };
+        
+        recorder.onresume = () => {
+          console.log('MediaRecorder resumed');
+        };
+        
+        recorder.onerror = (event) => {
+          console.error('MediaRecorder error:', event);
+          setError('Error during recording: ' + (event.error ? event.error.message : 'Unknown error'));
+        };
 
-        mediaRecorder.current.onstop = async () => {
-          console.log('MediaRecorder stopped, processing audio...');
+        recorder.onstop = async () => {
+          console.log('MediaRecorder stopped, chunks collected:', audioChunks.current.length);
+          
+          if (audioChunks.current.length === 0) {
+            console.error('No audio data collected');
+            setError('No audio data was recorded. Please try again.');
+            setIsProcessing(false);
+            return;
+          }
+          
           setIsProcessing(true);
+          
           try {
-            const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-            console.log('Audio blob created, size:', audioBlob.size);
-            audioChunks.current = [];
+            // Create blob from audio chunks
+            const blobOptions = { type: selectedMimeType || 'audio/webm' };
+            const audioBlob = new Blob(audioChunks.current, blobOptions);
+            console.log('Audio blob created, size:', audioBlob.size, 'bytes');
+            
+            if (audioBlob.size < 100) {
+              console.error('Audio blob too small, likely no audio captured');
+              throw new Error('Audio recording too short or no sound detected');
+            }
 
             // Create form data with the audio file
             const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
+            formData.append('audio', audioBlob, 'recording.webm');
 
             console.log('Sending audio to speech-to-text endpoint...');
             // Send audio to speech-to-text endpoint
@@ -309,6 +375,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
               body: formData,
             });
 
+            console.log('Speech-to-text response status:', transcriptionResponse.status);
+            
             if (!transcriptionResponse.ok) {
               const errorText = await transcriptionResponse.text();
               console.error('Transcription error response:', errorText);
@@ -319,12 +387,20 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
             const transcribedText = transcriptionData.text;
             console.log('Transcribed text:', transcribedText);
 
+            if (!transcribedText || transcribedText.trim() === '') {
+              console.warn('Empty transcription received');
+              throw new Error('No speech detected in recording');
+            }
+
+            // Add user message to UI immediately
+            setMessages(prev => [...prev, { role: 'user', content: transcribedText }]);
+
             // Send transcribed text to OpenAI
             console.log('Sending transcribed text to OpenAI...');
             await sendMessageToOpenAI(transcribedText);
           } catch (error) {
             console.error('Error processing audio:', error);
-            setError('Failed to process audio');
+            setError(error instanceof Error ? error.message : 'Failed to process audio');
           } finally {
             setIsProcessing(false);
           }
@@ -333,12 +409,13 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         console.log('MediaRecorder setup complete');
       } catch (err) {
         console.error('Error initializing media recorder:', err);
-        setError('Failed to access microphone');
+        setError('Failed to access microphone. Please ensure microphone permissions are granted.');
       }
     };
 
-    if (isConnected) {
-      console.log('Connection established, setting up media recorder');
+    // Only initialize once when component mounts
+    if (isConnected && !mediaRecorder.current) {
+      console.log('Connection established, setting up media recorder once');
       initMediaRecorder();
     }
   }, [isConnected, sendMessageToOpenAI]);
@@ -347,20 +424,33 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     console.log('Toggle recording button clicked');
     if (!mediaRecorder.current) {
       console.error('MediaRecorder not initialized');
+      setError('Microphone not initialized. Please refresh the page and try again.');
       return;
     }
 
-    console.log('Current recorder state:', mediaRecorder.current.state);
-    if (isRecording) {
-      console.log('Stopping recording...');
-      mediaRecorder.current.stop();
-    } else {
-      console.log('Starting recording...');
-      audioChunks.current = [];
-      mediaRecorder.current.start();
+    try {
+      console.log('Current recorder state:', mediaRecorder.current.state);
+      if (isRecording) {
+        console.log('Stopping recording...');
+        if (mediaRecorder.current.state !== 'inactive') {
+          mediaRecorder.current.stop();
+        } else {
+          console.warn('MediaRecorder already inactive, cannot stop');
+          setIsRecording(false);
+        }
+      } else {
+        console.log('Starting recording...');
+        // Clear previous chunks
+        audioChunks.current = [];
+        // Request data every 1 second to ensure we capture data even if stop fails
+        mediaRecorder.current.start(1000);
+      }
+      setIsRecording(!isRecording);
+      console.log('Recording state set to:', !isRecording);
+    } catch (error) {
+      console.error('Error toggling recording:', error);
+      setError('Failed to control microphone. Please try again.');
     }
-    setIsRecording(!isRecording);
-    console.log('Recording state set to:', !isRecording);
   };
 
   if (error) {
