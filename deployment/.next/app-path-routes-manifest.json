@@ -1,0 +1,10 @@
+{
+  "/api/openai-gpt/route": "/api/openai-gpt",
+  "/favicon.ico/route": "/favicon.ico",
+  "/page": "/",
+  "/api/speak/route": "/api/speak",
+  "/api/agent/route": "/api/agent",
+  "/api/extract-text/route": "/api/extract-text",
+  "/api/livekit/route": "/api/livekit",
+  "/api/speech-to-text/route": "/api/speech-to-text"
+}

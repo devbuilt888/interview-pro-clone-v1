@@ -1,0 +1,27 @@
+{
+  "sortedMiddleware": [],
+  "middleware": {},
+  "functions": {
+    "/api/openai-gpt/route": {
+      "files": [
+        "server/middleware-build-manifest.js",
+        "server/middleware-react-loadable-manifest.js",
+        "server/next-font-manifest.js",
+        "prerender-manifest.js",
+        "server/edge-runtime-webpack.js",
+        "server/app/api/openai-gpt/route.js"
+      ],
+      "name": "app/api/openai-gpt/route",
+      "page": "/api/openai-gpt/route",
+      "matchers": [
+        {
+          "regexp": "^/api/openai\\-gpt$",
+          "originalSource": "/api/openai-gpt"
+        }
+      ],
+      "wasm": [],
+      "assets": []
+    }
+  },
+  "version": 2
+}
