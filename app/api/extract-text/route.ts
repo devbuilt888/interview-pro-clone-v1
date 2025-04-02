@@ -11,8 +11,22 @@ function mergeTextContent(textContent: TextContent) {
   }).join('')
 }
 
-async function fetchOpenAIResponse(extractedText: string) {
-  const response = await fetch('/api/openai-gpt', {
+async function fetchOpenAIResponse(extractedText: string, requestUrl: string) {
+  // Construct absolute URL for server-side fetching
+  let baseUrl = requestUrl;
+  
+  // Extract origin from the request URL (e.g., https://interview-pro-clone-v1.vercel.app)
+  try {
+    const url = new URL(requestUrl);
+    baseUrl = url.origin;
+  } catch (error) {
+    console.error('Error parsing URL:', error);
+    // Fallback - use the request URL as is
+  }
+  
+  console.log(`Using base URL: ${baseUrl}`);
+  
+  const response = await fetch(`${baseUrl}/api/openai-gpt`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -21,6 +35,10 @@ async function fetchOpenAIResponse(extractedText: string) {
 ------
 ${extractedText}` }]}),
   });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API request failed with status: ${response.status}`);
+  }
 
   if (!response.body) {
     throw new Error('No response body');
@@ -53,30 +71,40 @@ export async function POST(req: NextRequest, res: NextResponse) {
   }
 
   try {
+    console.log('PDF extraction request received');
     const formData = await req.formData();
     const [ file ] = formData.getAll('file') as unknown as File[];
 
     if (!file) {
+      console.error('No file uploaded');
       return new Response('No file uploaded', {
         status: 400,
       });
     }
 
+    console.log(`File received: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
+    
     const fileBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(fileBuffer);
+    console.log(`File buffer created, length: ${fileData.length} bytes`);
 
     // Dynamically import PDF.js only when needed
+    console.log('Importing PDF.js');
     const pdfjs = await import('pdfjs-dist/build/pdf.min.mjs');
     
     // Set worker path properly for Vercel deployment
-    pdfjs.GlobalWorkerOptions.workerSrc = 
-      `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+    const workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+    console.log(`Setting PDF.js worker src: ${workerSrc}`);
+    pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
 
     // Load the PDF from the buffer
+    console.log('Loading PDF from buffer');
     const loadingTask = pdfjs.getDocument({ data: fileData });
     const pdf = await loadingTask.promise;
+    console.log(`PDF loaded with ${pdf.numPages} pages`);
 
     if (!pdf.numPages) {
+      console.warn('PDF has no pages');
       return new Response(JSON.stringify({ status: 'ok', text: null }), {
         headers: {
           'Content-Type': 'application/json',
@@ -84,12 +112,16 @@ export async function POST(req: NextRequest, res: NextResponse) {
       });
     }
 
+    console.log('Getting text content from first page');
     const page = await pdf.getPage(1);
     const textContent = await page.getTextContent();
     const extractedText = mergeTextContent(textContent);
+    console.log(`Extracted text length: ${extractedText.length} characters`);
 
     // Send extracted resume text to openAI API to get the first question from the AI
-    const openAIResponse = await fetchOpenAIResponse(extractedText);
+    console.log('Sending text to OpenAI');
+    const openAIResponse = await fetchOpenAIResponse(extractedText, req.url);
+    console.log('Received response from OpenAI');
 
     return new Response(JSON.stringify({ status: 'ok', text: openAIResponse }), {
       headers: {
@@ -97,7 +129,12 @@ export async function POST(req: NextRequest, res: NextResponse) {
       },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ status: 'error', error: String(err) }), {
+    console.error('Error in PDF extraction:', err);
+    return new Response(JSON.stringify({ 
+      status: 'error', 
+      error: String(err),
+      stack: err instanceof Error ? err.stack : undefined 
+    }), {
       status: 500,
       headers: {
         'Content-Type': 'application/json',

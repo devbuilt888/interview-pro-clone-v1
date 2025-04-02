@@ -10,6 +10,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [initialText, setInitialText] = useState("");
   const [isDragging, setIsDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Add a class to body when chat is shown
@@ -30,9 +31,11 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     setIsLoading(true);
+    setError(null);
     const file = event.target.files?.[0];
     if (!file) {
       console.error("No file selected");
+      setError("No file selected. Please try again.");
       setIsLoading(false);
       return;
     }
@@ -42,7 +45,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
 
   const processFile = async (file: File) => {
     if (file.type !== "application/pdf") {
-      alert("Please upload a PDF file");
+      setError("Please upload a PDF file.");
       setIsLoading(false);
       return;
     }
@@ -51,21 +54,27 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
     formData.append("file", file);
     
     try {
+      console.log(`Uploading file: ${file.name}, size: ${file.size} bytes`);
       const response = await fetch("/api/extract-text", {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error("Network response was not ok");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Server error (${response.status}): ${errorData.error || response.statusText}`);
       }
 
-      const { text: extractedText } = await response.json();
+      const data = await response.json();
+      if (data.status === 'error') {
+        throw new Error(`PDF processing error: ${data.error}`);
+      }
 
-      setInitialText(extractedText);
+      setInitialText(data.text);
       setShowChat(true);
     } catch (error) {
       console.error("Error processing resume:", error);
+      setError(error instanceof Error ? error.message : "Failed to process the resume. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -88,12 +97,21 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
     e.stopPropagation();
     setIsDragging(false);
     setIsLoading(true);
+    setError(null);
     
     const files = e.dataTransfer.files;
     if (files.length > 0) {
       await processFile(files[0]);
     } else {
+      setError("No file detected. Please try again.");
       setIsLoading(false);
+    }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -107,7 +125,7 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
       {!showChat ? (
         <>
           <div 
-            className={`file-upload-btn-container ${isDragging ? 'dragging' : ''}`}
+            className={`file-upload-btn-container ${isDragging ? 'dragging' : ''} ${error ? 'error' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -125,7 +143,15 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
             </label>
             <p className="drag-drop-hint">or drag and drop a PDF file here</p>
           </div>
+          
           {isLoading && <div className="loading-spinner"></div>}
+          
+          {error && (
+            <div className="error-message">
+              <p>{error}</p>
+              <button onClick={handleRetry} className="retry-button">Try Again</button>
+            </div>
+          )}
         </>
       ) : (
         <AudioChat initialText={initialText} />
