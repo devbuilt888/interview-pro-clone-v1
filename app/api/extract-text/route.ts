@@ -1,7 +1,8 @@
 // import formidable from "formidable";
-import * as pdfjs from 'pdfjs-dist/build/pdf.min.mjs';
-import type { TextContent, TextItem } from 'pdfjs-dist/types/src/display/api';
 import { NextResponse, NextRequest } from 'next/server';
+
+// Import types separately to avoid build issues
+import type { TextContent, TextItem } from 'pdfjs-dist/types/src/display/api';
 
 function mergeTextContent(textContent: TextContent) {
   return textContent.items.map(item => {
@@ -64,8 +65,12 @@ export async function POST(req: NextRequest, res: NextResponse) {
     const fileBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(fileBuffer);
 
-    // Initialize pdf.js with CDN worker
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+    // Dynamically import PDF.js only when needed
+    const pdfjs = await import('pdfjs-dist/build/pdf.min.mjs');
+    
+    // Set worker path properly for Vercel deployment
+    pdfjs.GlobalWorkerOptions.workerSrc = 
+      `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
     // Load the PDF from the buffer
     const loadingTask = pdfjs.getDocument({ data: fileData });
