@@ -81,37 +81,50 @@ function getFallbackText(): string {
 }
 
 async function fetchOpenAIResponse(extractedText: string, requestUrl: string) {
-  // Construct absolute URL for server-side fetching
-  let baseUrl = requestUrl;
-  
-  // Extract origin from the request URL (e.g., https://interview-pro-clone-v1.vercel.app)
   try {
-    const url = new URL(requestUrl);
-    baseUrl = url.origin;
+    // For serverless environments, we'll use a direct API call to OpenAI
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_API_KEY) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: "You are an AI interviewer named Bob. Your task is to review resumes and conduct technical interviews. Start by introducing yourself and then ask relevant questions based on the resume content."
+          },
+          {
+            role: "user",
+            content: `Here is my resume:
+------
+${extractedText}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('OpenAI API error:', await response.text());
+      // Return a fallback message if the API call fails
+      return "Hello, I'm Bob, I'm your interviewer today. I'll be reviewing your resume and asking you some questions. I see you have experience with various technologies. Could you tell me more about your most recent project?";
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
   } catch (error) {
-    console.error('Error parsing URL:', error);
-    // Fallback - use the request URL as is
-  }
-  
-  console.log(`Using base URL: ${baseUrl}`);
-  
-  // Use explicit absolute URL path for OpenAI endpoint
-  const openaiApiUrl = `${baseUrl}/api/openai-gpt`;
-  console.log(`Making OpenAI API request to: ${openaiApiUrl}`);
-  
-  try {
-    // The OpenAI endpoint returns a streaming response, which doesn't work well
-    // in this server-to-server context. Let's use a different approach.
-    
-    // Instead of using the full streaming API, let's use a simpler message
-    const firstQuestion = "Hello! I'm Bob, your AI interviewer today. I've received your resume and I'm ready to start our interview. Could you please tell me a bit about yourself and your professional background?";
-    
-    console.log('Using pre-defined first question instead of OpenAI API');
-    return firstQuestion;
-  } catch (error) {
-    console.error('Error in OpenAI API request:', error);
-    // Return a fallback message instead of throwing
-    return "Hello! I'm Bob, your AI interviewer. Let's start our interview. Could you please tell me a bit about yourself and your professional background?";
+    console.error('Error in OpenAI API call:', error);
+    // Return a fallback message if there's an error
+    return "Hello, I'm Bob, I'm your interviewer today. I'll be reviewing your resume and asking you some questions. I see you have experience with various technologies. Could you tell me more about your most recent project?";
   }
 }
 

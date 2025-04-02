@@ -1,24 +1,31 @@
+import { NextRequest, NextResponse } from 'next/server';
 import { AccessToken } from 'livekit-server-sdk';
-import { NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const { roomName, participantName } = await req.json();
 
-    if (!process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET || !process.env.LIVEKIT_WS_URL) {
-      throw new Error('Missing required environment variables');
+    if (!roomName || !participantName) {
+      return NextResponse.json(
+        { error: 'Missing roomName or participantName' },
+        { status: 400 }
+      );
     }
 
+    // Create access token
     const at = new AccessToken(
-      process.env.LIVEKIT_API_KEY,
-      process.env.LIVEKIT_API_SECRET,
-      { identity: participantName }
+      process.env.LIVEKIT_API_KEY!,
+      process.env.LIVEKIT_API_SECRET!,
+      {
+        identity: participantName,
+        name: participantName,
+      }
     );
 
-    at.addGrant({ 
-      roomJoin: true, 
+    at.addGrant({
+      roomJoin: true,
       room: roomName,
       canPublish: true,
       canSubscribe: true,
@@ -28,13 +35,13 @@ export async function POST(req: Request) {
 
     // Create agent token
     const agentAt = new AccessToken(
-      process.env.LIVEKIT_API_KEY,
-      process.env.LIVEKIT_API_SECRET,
+      process.env.LIVEKIT_API_KEY!,
+      process.env.LIVEKIT_API_SECRET!,
       { identity: 'agent' }
     );
 
-    agentAt.addGrant({ 
-      roomJoin: true, 
+    agentAt.addGrant({
+      roomJoin: true,
       room: roomName,
       canPublish: true,
       canSubscribe: true,
@@ -107,11 +114,10 @@ export async function POST(req: Request) {
       roomName,
       wsUrl: process.env.LIVEKIT_WS_URL,
     });
-
   } catch (error) {
-    console.error('Error in /api/agent:', error);
+    console.error('Error generating LiveKit token:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to generate token' },
       { status: 500 }
     );
   }
