@@ -63,10 +63,20 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [isUIReady, setIsUIReady] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
+  const [loadingComplete, setLoadingComplete] = useState(false);
   const initialMessageSent = useRef(false);
   const soundPlayed = useRef(false);
   const setupAttempted = useRef(false);
   const connectionAttempts = useRef(0);
+
+  // Add minimum loading time of 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoadingComplete(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // Use the useChat hook for better message handling
   const { append, messages: chatMessages } = useChat({
@@ -462,7 +472,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     );
   }
 
-  if (!isConnected || !token || !roomName || !wsUrl) {
+  if (!loadingComplete || !isConnected || !token || !roomName || !wsUrl) {
     return (
       <div className="loading-container">
         <div className="loading-message">

@@ -23,12 +23,8 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
     // First, try to extract the structure and key sections
     const sections: {[key: string]: string} = {};
     
-    // Look for common resume section headers
-    const nameMatch = text.match(/([A-Z][a-z]+\s+[A-Z][a-z]+|[A-Z]+\s+[A-Z][a-z]+)/);
-    if (nameMatch) {
-      sections.name = nameMatch[0].trim();
-      console.log('Found name:', sections.name);
-    }
+    // Enhanced name extraction with multiple patterns
+    extractName(text, sections);
     
     // Try to extract experience
     const experienceMatch = text.match(/experience|employment|work\s+history/i);
@@ -145,6 +141,78 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
   } catch (error) {
     console.error('Error extracting text from PDF:', error);
     return getFallbackText();
+  }
+}
+
+// Enhanced name extraction function with multiple patterns
+function extractName(text: string, sections: {[key: string]: string}): void {
+  console.log('Extracting name with enhanced patterns...');
+  
+  // Pattern 1: Look for a name at the beginning of the document
+  // This targets names typically positioned at the top of a resume
+  const topNameRegex = /^\s*([A-Z][a-zàáâäãåąčćęèéêëėįìíîïłńòóôöõøùúûüųūÿýżźñçčšžÀÁÂÄÃÅĄĆČĖĘÈÉÊËÌÍÎÏĮŁŃÒÓÔÖÕØÙÚÛÜŲŪŸÝŻŹÑßÇŒÆČŠŽ∂ð'-]+(?:\s+[A-Z][a-zàáâäãåąčćęèéêëėįìíîïłńòóôöõøùúûüųūÿýżźñçčšžÀÁÂÄÃÅĄĆČĖĘÈÉÊËÌÍÎÏĮŁŃÒÓÔÖÕØÙÚÛÜŲŪŸÝŻŹÑßÇŒÆČŠŽ∂ð'-]+){1,4})\s*$/m;
+  
+  // Pattern 2: Name followed by contact info
+  // This targets names followed by email, phone, or address
+  const contactNameRegex = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*[\n\r]+\s*(?:Email|Phone|Address|Tel|Mobile|LinkedIn|https?:\/\/)/i;
+  
+  // Pattern 3: Common centered name pattern
+  // This targets names that appear centered near the top
+  const centeredNameRegex = /^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*$/m;
+  
+  // Pattern 4: Name with professional title
+  // This targets "Name | Title" or "Name - Title" patterns
+  const titleNameRegex = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*(?:\||–|-)\s*(?:[A-Za-z]+\s*)+/;
+  
+  // Pattern 5: Resume/CV title followed by name
+  // This targets "Resume of Name" or "CV - Name" patterns
+  const resumeNameRegex = /(?:Resume|CV|Curriculum\s+Vitae)(?:\s+of|\s+for|\s*[:|-])?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/i;
+  
+  // Try all patterns and choose the best match
+  const patterns = [
+    { regex: topNameRegex, priority: 3 },
+    { regex: contactNameRegex, priority: 2 },
+    { regex: centeredNameRegex, priority: 4 },
+    { regex: titleNameRegex, priority: 3 },
+    { regex: resumeNameRegex, priority: 4 },
+  ];
+  
+  let bestMatch: { name: string; priority: number } | null = null;
+  
+  // Try first 10000 characters for efficiency
+  const searchText = text.substring(0, 10000);
+  
+  for (const pattern of patterns) {
+    const match = searchText.match(pattern.regex);
+    if (match && match[1]) {
+      const candidateName = match[1].trim();
+      
+      // Check if it's a plausible name (not too short, not too long)
+      if (candidateName.length > 3 && candidateName.length < 40 && /[A-Z][a-z]/.test(candidateName)) {
+        // Don't match section headers
+        if (!/education|experience|skills|objective|summary|history|projects|certification/i.test(candidateName)) {
+          // If we found a match with higher priority
+          if (!bestMatch || pattern.priority > bestMatch.priority) {
+            bestMatch = { name: candidateName, priority: pattern.priority };
+          }
+        }
+      }
+    }
+  }
+  
+  // If a name was found, add it to sections
+  if (bestMatch) {
+    console.log('Found name in document:', bestMatch.name);
+    sections.name = bestMatch.name;
+  } else {
+    // Fallback to the original simpler pattern
+    const nameMatch = text.match(/([A-Z][a-z]+\s+[A-Z][a-z]+|[A-Z]+\s+[A-Z][a-z]+)/);
+    if (nameMatch) {
+      sections.name = nameMatch[0].trim();
+      console.log('Found name using fallback pattern:', sections.name);
+    } else {
+      console.log('No name found in document');
+    }
   }
 }
 
