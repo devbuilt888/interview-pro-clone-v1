@@ -11,7 +11,7 @@ function mergeTextContent(textContent: TextContent) {
 }
 
 async function fetchOpenAIResponse(extractedText: string) {
-  const response = await fetch('http://localhost:3000/api/openai-gpt', {
+  const response = await fetch('/api/openai-gpt', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest, res: NextResponse) {
     const fileBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(fileBuffer);
 
-    // Initialize pdf.js
-    await import('pdfjs-dist/build/pdf.worker.mjs');
+    // Initialize pdf.js with CDN worker
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
     // Load the PDF from the buffer
     const loadingTask = pdfjs.getDocument({ data: fileData });
