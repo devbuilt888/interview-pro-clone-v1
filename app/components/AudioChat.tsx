@@ -63,6 +63,9 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [isUIReady, setIsUIReady] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
+  const initialMessageSent = useRef(false);
+  const soundPlayed = useRef(false);
+  const setupAttempted = useRef(false);
 
   // Use the useChat hook for better message handling
   const { append, messages: chatMessages } = useChat({
@@ -73,7 +76,6 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         speakText(message.content).catch(console.error);
 
         // Check if this is the final message (contains the goodbye message)
-        // Look for the key phrases that indicate the interview is complete
         if (message.content.includes('Thank you for your time') &&
           message.content.includes('have a great day')
         ) {
@@ -95,17 +97,19 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Play transformers sound when loading
+  // Play transformers sound when loading - only once
   useEffect(() => {
-    if (!isConnected || !token || !roomName || !wsUrl) {
+    if (!isConnected && !soundPlayed.current) {
       playTransformersSound();
+      soundPlayed.current = true;
     }
-  }, [isConnected, token, roomName, wsUrl]);
+  }, [isConnected]);
 
-  // Play game-end sound when interview is complete
+  // Play game-end sound when interview is complete - only once
   useEffect(() => {
-    if (isInterviewComplete) {
+    if (isInterviewComplete && soundPlayed.current) {
       playGameEndSound();
+      soundPlayed.current = false; // Reset for potential new interview
     }
   }, [isInterviewComplete]);
 
@@ -147,8 +151,10 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     try {
       // If it's a system message (like the initial greeting), speak it directly
       if (role === 'system') {
-        setMessages(prev => [...prev, { role, content: messageContent }]);
-        await speakText(messageContent);
+        if (!messages.some(msg => msg.content === messageContent)) {
+          setMessages(prev => [...prev, { role, content: messageContent }]);
+          await speakText(messageContent);
+        }
         return;
       }
 
@@ -161,20 +167,25 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
       console.error('Error in sendMessageToOpenAI:', error);
       setError('Failed to get AI response');
     }
-  }, [append, setMessages, speakText]);
+  }, [append, messages]);
 
   // Update messages when chat messages change
   useEffect(() => {
     if (chatMessages.length > 0) {
-      setMessages(chatMessages);
-
-      // We no longer trigger speech here since we're using onFinish
-      // The UI will still update progressively with the stream
+      // Filter out duplicate messages
+      const uniqueMessages = chatMessages.filter((msg, index, self) =>
+        index === self.findIndex((m) => m.content === msg.content)
+      );
+      setMessages(uniqueMessages);
     }
   }, [chatMessages]);
 
   useEffect(() => {
     const setupRoom = async () => {
+      // Prevent multiple setup attempts
+      if (setupAttempted.current) return;
+      setupAttempted.current = true;
+
       try {
         console.log('Setting up room...');
         const generatedRoomName = `interview-${Math.random().toString(36).substring(2, 8)}`;
@@ -217,16 +228,16 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         setIsConnected(true);
         setIsUIReady(true);
 
-        // Send initial message after UI is ready
-        const initialMessage = initialText ?? 'Hello, I am Bob the Interviewer. How can I help you?';
-        await sendMessageToOpenAI(initialMessage, 'system');
+        // Send initial message only if it hasn't been sent before
+        if (!initialMessageSent.current) {
+          const initialMessage = initialText ?? 'Hello, I am Bob the Interviewer. How can I help you?';
+          await sendMessageToOpenAI(initialMessage, 'system');
+          initialMessageSent.current = true;
+        }
       } catch (err) {
         console.error('Error setting up room:', err);
         setError(err instanceof Error ? err.message : 'Failed to connect to interview room');
-        // Add a retry mechanism
-        setTimeout(() => {
-          setupRoom();
-        }, 5000); // Retry after 5 seconds
+        // Remove the automatic retry mechanism
       }
     };
 
@@ -351,24 +362,12 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
           onDisconnected={() => {
             console.log('Disconnected from LiveKit room:', roomName);
             setIsConnected(false);
-            // Attempt to reconnect
-            setTimeout(() => {
-              if (token && wsUrl) {
-                console.log('Attempting to reconnect...');
-                setIsConnected(true);
-              }
-            }, 5000);
+            // Remove automatic reconnection
           }}
           onError={(error) => {
             console.error('LiveKit room error:', error);
             setError(error.message);
-            // Attempt to recover from error
-            setTimeout(() => {
-              if (token && wsUrl) {
-                console.log('Attempting to recover from error...');
-                setIsConnected(true);
-              }
-            }, 5000);
+            // Remove automatic recovery
           }}
         >
           <div className="chat-layout">
