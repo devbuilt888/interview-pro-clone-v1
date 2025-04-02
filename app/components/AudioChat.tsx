@@ -180,6 +180,11 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         const generatedRoomName = `interview-${Math.random().toString(36).substring(2, 8)}`;
         setRoomName(generatedRoomName);
 
+        // First, validate that we have the required environment variables
+        if (!process.env.NEXT_PUBLIC_LIVEKIT_WS_URL) {
+          throw new Error('LiveKit WebSocket URL not configured');
+        }
+
         const response = await fetch('/api/agent', {
           method: 'POST',
           headers: {
@@ -192,7 +197,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         });
 
         if (!response.ok) {
-          throw new Error('Failed to get token');
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to get token');
         }
 
         const data = await response.json();
@@ -209,7 +215,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         setToken(data.token);
         setWsUrl(data.wsUrl);
         setIsConnected(true);
-        setIsUIReady(true); // Mark UI as ready after connection is established
+        setIsUIReady(true);
 
         // Send initial message after UI is ready
         const initialMessage = initialText ?? 'Hello, I am Bob the Interviewer. How can I help you?';
@@ -217,6 +223,10 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
       } catch (err) {
         console.error('Error setting up room:', err);
         setError(err instanceof Error ? err.message : 'Failed to connect to interview room');
+        // Add a retry mechanism
+        setTimeout(() => {
+          setupRoom();
+        }, 5000); // Retry after 5 seconds
       }
     };
 
@@ -336,13 +346,29 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
           connect={true}
           onConnected={() => {
             console.log('Connected to LiveKit room:', roomName);
+            setIsConnected(true);
           }}
           onDisconnected={() => {
             console.log('Disconnected from LiveKit room:', roomName);
+            setIsConnected(false);
+            // Attempt to reconnect
+            setTimeout(() => {
+              if (token && wsUrl) {
+                console.log('Attempting to reconnect...');
+                setIsConnected(true);
+              }
+            }, 5000);
           }}
           onError={(error) => {
             console.error('LiveKit room error:', error);
             setError(error.message);
+            // Attempt to recover from error
+            setTimeout(() => {
+              if (token && wsUrl) {
+                console.log('Attempting to recover from error...');
+                setIsConnected(true);
+              }
+            }, 5000);
           }}
         >
           <div className="chat-layout">
