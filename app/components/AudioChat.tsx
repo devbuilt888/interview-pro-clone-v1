@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import Image from 'next/image';
 import {
   LiveKitRoom,
@@ -109,8 +109,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     }
   }, [isInterviewComplete]);
 
-  // Function to send text to speech
-  const speakText = async (text: string) => {
+  // Memoize the speakText function to prevent unnecessary re-renders
+  const speakText = useCallback(async (text: string) => {
     try {
       // Create a new SpeechSynthesisUtterance
       const utterance = new SpeechSynthesisUtterance(text);
@@ -140,10 +140,10 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     } catch (error) {
       console.error('Error in text-to-speech:', error);
     }
-  };
+  }, []);
 
-  // Function to send message to OpenAI and speak
-  const sendMessageToOpenAI = async (messageContent: string, role: 'system' | 'user' = 'user') => {
+  // Function to send message to OpenAI and speak - memoized to prevent recreation
+  const sendMessageToOpenAI = useCallback(async (messageContent: string, role: 'system' | 'user' = 'user') => {
     try {
       // If it's a system message (like the initial greeting), speak it directly
       if (role === 'system') {
@@ -161,7 +161,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
       console.error('Error in sendMessageToOpenAI:', error);
       setError('Failed to get AI response');
     }
-  };
+  }, [append, setMessages, speakText]);
 
   // Update messages when chat messages change
   useEffect(() => {
@@ -221,7 +221,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     };
 
     setupRoom();
-  }, [initialText]);
+  }, [initialText, sendMessageToOpenAI]);
 
   // Initialize MediaRecorder
   useEffect(() => {
@@ -277,7 +277,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     if (isConnected) {
       initMediaRecorder();
     }
-  }, [isConnected]);
+  }, [isConnected, sendMessageToOpenAI]);
 
   const toggleRecording = () => {
     if (!mediaRecorder.current) {

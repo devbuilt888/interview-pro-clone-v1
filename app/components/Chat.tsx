@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useChat } from 'ai/react';
 import dynamic from 'next/dynamic';
 
@@ -33,12 +33,14 @@ const aiAuthor = {
 };
 
 const Chat: React.FC<ChatProps> = ({ initialText }) => {
-  const initialMessage = {
+  // Use useMemo to stabilize the initialMessage object
+  const initialMessage = useMemo(() => ({
     author: aiAuthor,
     text: initialText ?? 'Hello, I am Bob the Interviewer. How can I help you?',
     type: 'text',
     timestamp: +new Date(),
-  };
+  }), [initialText]);
+  
   const [chatMessages, setChatMessages] = useState([initialMessage]);
   const { append, messages } = useChat({
     api: '/api/openai-gpt',

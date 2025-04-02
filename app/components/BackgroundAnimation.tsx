@@ -13,6 +13,9 @@ const BackgroundAnimation = () => {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    
+    // Store reference to container DOM node to use in cleanup
+    const container = containerRef.current;
 
     // Add maximum speed constant
     const MAX_SPEED = 0.02; // Maximum speed for any direction
@@ -29,7 +32,6 @@ const BackgroundAnimation = () => {
     };
 
     // Setup
-    const container = containerRef.current;
     const renderer = new THREE.WebGLRenderer({ 
       antialias: true,
       alpha: true 
@@ -273,15 +275,25 @@ const BackgroundAnimation = () => {
     window.addEventListener('resize', handleResize);
     animate(0);
 
-    // Cleanup
+    // Return cleanup function
     return () => {
-      window.removeEventListener('resize', handleResize);
-      if (containerRef.current && rendererRef.current) {
-        containerRef.current.removeChild(rendererRef.current.domElement);
+      // Use the saved container reference
+      if (renderer.domElement && container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
       }
-      cubesRef.current = [];
-      velocitiesRef.current = [];
-      boundingSpheresRef.current = [];
+      renderer.dispose();
+      
+      // Clean up other resources
+      cubesRef.current.forEach(cube => {
+        if (cube.geometry) cube.geometry.dispose();
+        if (cube.material) {
+          if (Array.isArray(cube.material)) {
+            cube.material.forEach(material => material.dispose());
+          } else {
+            cube.material.dispose();
+          }
+        }
+      });
     };
   }, []);
 
