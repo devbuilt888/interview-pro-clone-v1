@@ -271,25 +271,38 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   useEffect(() => {
     const initMediaRecorder = async () => {
       try {
+        console.log('Initializing MediaRecorder...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('Audio stream obtained:', stream.active);
+        
         mediaRecorder.current = new MediaRecorder(stream);
+        console.log('MediaRecorder created:', mediaRecorder.current.state);
 
         mediaRecorder.current.ondataavailable = (event) => {
+          console.log('Data available event:', event.data.size);
           if (event.data.size > 0) {
             audioChunks.current.push(event.data);
           }
         };
 
+        mediaRecorder.current.onstart = () => {
+          console.log('MediaRecorder started');
+          audioChunks.current = [];
+        };
+
         mediaRecorder.current.onstop = async () => {
+          console.log('MediaRecorder stopped, processing audio...');
           setIsProcessing(true);
           try {
             const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
+            console.log('Audio blob created, size:', audioBlob.size);
             audioChunks.current = [];
 
             // Create form data with the audio file
             const formData = new FormData();
             formData.append('audio', audioBlob, 'recording.wav');
 
+            console.log('Sending audio to speech-to-text endpoint...');
             // Send audio to speech-to-text endpoint
             const transcriptionResponse = await fetch('/api/speech-to-text', {
               method: 'POST',
@@ -297,13 +310,17 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
             });
 
             if (!transcriptionResponse.ok) {
+              const errorText = await transcriptionResponse.text();
+              console.error('Transcription error response:', errorText);
               throw new Error('Failed to transcribe audio');
             }
 
-            const { text: transcribedText } = await transcriptionResponse.json();
+            const transcriptionData = await transcriptionResponse.json();
+            const transcribedText = transcriptionData.text;
             console.log('Transcribed text:', transcribedText);
 
             // Send transcribed text to OpenAI
+            console.log('Sending transcribed text to OpenAI...');
             await sendMessageToOpenAI(transcribedText);
           } catch (error) {
             console.error('Error processing audio:', error);
@@ -312,6 +329,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
             setIsProcessing(false);
           }
         };
+
+        console.log('MediaRecorder setup complete');
       } catch (err) {
         console.error('Error initializing media recorder:', err);
         setError('Failed to access microphone');
@@ -319,23 +338,29 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     };
 
     if (isConnected) {
+      console.log('Connection established, setting up media recorder');
       initMediaRecorder();
     }
   }, [isConnected, sendMessageToOpenAI]);
 
   const toggleRecording = () => {
+    console.log('Toggle recording button clicked');
     if (!mediaRecorder.current) {
       console.error('MediaRecorder not initialized');
       return;
     }
 
+    console.log('Current recorder state:', mediaRecorder.current.state);
     if (isRecording) {
+      console.log('Stopping recording...');
       mediaRecorder.current.stop();
     } else {
+      console.log('Starting recording...');
       audioChunks.current = [];
       mediaRecorder.current.start();
     }
     setIsRecording(!isRecording);
+    console.log('Recording state set to:', !isRecording);
   };
 
   if (error) {
