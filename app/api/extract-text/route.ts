@@ -88,18 +88,25 @@ export async function POST(req: NextRequest, res: NextResponse) {
     const fileData = new Uint8Array(fileBuffer);
     console.log(`File buffer created, length: ${fileData.length} bytes`);
 
-    // Dynamically import PDF.js only when needed
+    // Import PDF.js
     console.log('Importing PDF.js');
     const pdfjs = await import('pdfjs-dist/build/pdf.min.mjs');
     
-    // Set worker path properly for Vercel deployment
-    const workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
-    console.log(`Setting PDF.js worker src: ${workerSrc}`);
-    pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+    // Disable worker for Vercel serverless environment
+    console.log('Disabling PDF.js worker for serverless environment');
+    // @ts-ignore - Setting to empty string disables worker
+    pdfjs.GlobalWorkerOptions.workerSrc = '';
 
     // Load the PDF from the buffer
-    console.log('Loading PDF from buffer');
-    const loadingTask = pdfjs.getDocument({ data: fileData });
+    console.log('Loading PDF from buffer without worker');
+    const loadingTask = pdfjs.getDocument({ 
+      data: fileData,
+      // @ts-ignore - These options help in serverless environment
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: false
+    });
+    
     const pdf = await loadingTask.promise;
     console.log(`PDF loaded with ${pdf.numPages} pages`);
 
