@@ -70,7 +70,11 @@ const ResumeUploader: React.FC<ResumeUploaderProps> = ({ onChatStart }) => {
         throw new Error(`PDF processing error: ${data.error}`);
       }
 
-      setInitialText(data.text);
+      // Store the initial text from the response
+      const receivedText = data.text || "Hello, I am Bob the Interviewer. I'll be reviewing your resume and asking you some questions.";
+      console.log('Received initial message:', receivedText.substring(0, 50) + '...');
+      
+      setInitialText(receivedText);
       setShowChat(true);
     } catch (error) {
       console.error("Error processing resume:", error);

@@ -12,13 +12,18 @@ export const runtime = 'edge';
 export async function POST(req: Request) {
   const { messages } = await req.json();
 
-  // If this is the first message (system message), don't send it to OpenAI
+  // If this is the first message (system message), just echo it back
+  // This handles the initial message from PDF extraction
   if (messages.length === 1 && messages[0].role === 'system') {
-    return new Response(JSON.stringify({ message: messages[0].content }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new StreamingTextResponse(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(messages[0].content));
+        controller.close();
+      }
+    }));
   }
 
+  // For normal conversation, send messages to OpenAI
   const response = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
     messages: [

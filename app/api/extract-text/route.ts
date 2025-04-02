@@ -78,7 +78,7 @@ Education: BS Computer Science, University of Technology (2019)`;
 }
 
 // Function to fetch OpenAI response
-async function fetchOpenAIResponse(extractedText: string, requestUrl: string): Promise<Response> {
+async function fetchOpenAIResponse(extractedText: string): Promise<string> {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
@@ -89,36 +89,22 @@ async function fetchOpenAIResponse(extractedText: string, requestUrl: string): P
       messages: [
         {
           role: "system",
-          content: "You are Bob, an AI interviewer. Analyze the resume and prepare relevant questions. Keep responses concise."
+          content: "You are Bob, an AI interviewer. You are conducting a behavioral interview. Ask about the resume and experience. Keep responses concise and suitable for text-to-speech. Format your response as an introduction followed by ONE question to start the interview. DO NOT list multiple questions at once."
         },
         {
           role: "user",
           content: `Here is the resume text: ${extractedText}`
         }
       ],
-      max_tokens: 500,
+      max_tokens: 200,
       temperature: 0.7,
     });
 
-    return new Response(JSON.stringify({ 
-      text: completion.choices[0]?.message?.content || 'No response generated'
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return completion.choices[0]?.message?.content || 
+      "Hello, I am Bob the Interviewer. I'll be reviewing your resume and asking you some questions today. Could you tell me more about your experience?";
   } catch (error) {
     console.error('OpenAI API error:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Failed to process with OpenAI',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return "Hello, I am Bob the Interviewer. I'll be reviewing your resume and asking you some questions today. Could you tell me more about your experience?";
   }
 }
 
@@ -128,7 +114,7 @@ export async function POST(req: NextRequest) {
     
     const formData = await req.formData();
     const file = formData.get('file') as File;
-    
+
     if (!file) {
       return new Response(JSON.stringify({ error: 'No file provided' }), {
         status: 400,
@@ -149,10 +135,23 @@ export async function POST(req: NextRequest) {
     console.log(`Extracted text length: ${extractedText.length} characters`);
 
     console.log('Sending extracted text to OpenAI');
-    return fetchOpenAIResponse(extractedText, req.url);
+    const initialMessage = await fetchOpenAIResponse(extractedText);
+    console.log('Received response from OpenAI');
+
+    // Return the response in the format expected by ResumeUploader
+    return new Response(JSON.stringify({ 
+      status: 'ok',
+      text: initialMessage 
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   } catch (error) {
     console.error('Error in PDF extraction:', error);
     return new Response(JSON.stringify({ 
+      status: 'error',
       error: 'Failed to process PDF',
       details: error instanceof Error ? error.message : 'Unknown error'
     }), {

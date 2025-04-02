@@ -66,10 +66,12 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   const initialMessageSent = useRef(false);
   const soundPlayed = useRef(false);
   const setupAttempted = useRef(false);
+  const connectionAttempts = useRef(0);
 
   // Use the useChat hook for better message handling
   const { append, messages: chatMessages } = useChat({
     api: '/api/openai-gpt',
+    // Skip initialMessages entirely and use our first message approach
     onFinish: (message) => {
       // Only speak the complete message when it's fully received
       if (message.role === 'assistant') {
@@ -146,14 +148,41 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     }
   }, []);
 
+  // Apply the initial message - only once, and only if provided
+  useEffect(() => {
+    if (initialText && !initialMessageSent.current && isConnected && isUIReady) {
+      const sendInitialMessage = async () => {
+        try {
+          // First add the message to the UI
+          setMessages(prev => [...prev, { role: 'system', content: initialText }]);
+          
+          // Then speak it
+          await speakText(initialText);
+          
+          // Mark as sent so it doesn't happen again
+          initialMessageSent.current = true;
+        } catch (error) {
+          console.error('Error sending initial message:', error);
+        }
+      };
+      
+      sendInitialMessage();
+    }
+  }, [initialText, isConnected, isUIReady, speakText]);
+
   // Function to send message to OpenAI and speak - memoized to prevent recreation
   const sendMessageToOpenAI = useCallback(async (messageContent: string, role: 'system' | 'user' = 'user') => {
     try {
-      // If it's a system message (like the initial greeting), speak it directly
+      // If it's a system message (like the initial greeting), we handle it separately
       if (role === 'system') {
+        // Skip if already sent via the useEffect hook
+        if (initialText && initialMessageSent.current) return;
+        
+        // Only add and speak if not a duplicate
         if (!messages.some(msg => msg.content === messageContent)) {
           setMessages(prev => [...prev, { role, content: messageContent }]);
           await speakText(messageContent);
+          initialMessageSent.current = true;
         }
         return;
       }
@@ -167,7 +196,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
       console.error('Error in sendMessageToOpenAI:', error);
       setError('Failed to get AI response');
     }
-  }, [append, messages]);
+  }, [append, messages, initialText, speakText]);
 
   // Update messages when chat messages change
   useEffect(() => {
@@ -228,21 +257,15 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
         setIsConnected(true);
         setIsUIReady(true);
 
-        // Send initial message only if it hasn't been sent before
-        if (!initialMessageSent.current) {
-          const initialMessage = initialText ?? 'Hello, I am Bob the Interviewer. How can I help you?';
-          await sendMessageToOpenAI(initialMessage, 'system');
-          initialMessageSent.current = true;
-        }
+        // We no longer send the initial message here, it's handled by the dedicated useEffect
       } catch (err) {
         console.error('Error setting up room:', err);
         setError(err instanceof Error ? err.message : 'Failed to connect to interview room');
-        // Remove the automatic retry mechanism
       }
     };
 
     setupRoom();
-  }, [initialText, sendMessageToOpenAI]);
+  }, []);
 
   // Initialize MediaRecorder
   useEffect(() => {
@@ -358,16 +381,20 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
           onConnected={() => {
             console.log('Connected to LiveKit room:', roomName);
             setIsConnected(true);
+            connectionAttempts.current = 0;
           }}
           onDisconnected={() => {
             console.log('Disconnected from LiveKit room:', roomName);
             setIsConnected(false);
-            // Remove automatic reconnection
           }}
           onError={(error) => {
             console.error('LiveKit room error:', error);
-            setError(error.message);
-            // Remove automatic recovery
+            // Only set error if we've tried a few times
+            if (connectionAttempts.current >= 3) {
+              setError(error.message);
+            } else {
+              connectionAttempts.current++;
+            }
           }}
         >
           <div className="chat-layout">
