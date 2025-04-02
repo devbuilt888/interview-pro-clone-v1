@@ -20,7 +20,10 @@ export const playGameEndSound = (): void => {
   playSoundEffect('/game-end.mp3');
 };
 
-export default {
+// Named object for default export
+const SoundEffects = {
   playTransformersSound,
   playGameEndSound
 }; 
+
+export default SoundEffects; 

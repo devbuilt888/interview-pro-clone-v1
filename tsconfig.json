@@ -8,7 +8,7 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "commonjs",
+    "module": "esnext",
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -18,7 +18,10 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "paths": {
+      "ai/react": ["./node_modules/ai/react"]
+    }
   },
   "ts-node": {
     "compilerOptions": {

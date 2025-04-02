@@ -3,7 +3,16 @@
 import { useEffect, useState } from 'react';
 import { useChat } from 'ai/react';
 import dynamic from 'next/dynamic';
-import type { ChatBoxProps } from 'react-chat-plugin';
+
+// Define the ChatBoxProps type locally
+interface ChatBoxProps {
+  messages: any[];
+  userId: number;
+  onSendMessage: (message: string) => void;
+  width: string;
+  height: string;
+  style?: React.CSSProperties;
+}
 
 const ChatBox = dynamic<ChatBoxProps>(() => import('react-chat-plugin'), { ssr: false });
 
@@ -50,7 +59,7 @@ const Chat: React.FC<ChatProps> = ({ initialText }) => {
       });
     });
     setChatMessages([initialMessage, ...chatMessagesArr]);
-  }, [messages]);
+  }, [messages, initialMessage]);
 
   const handleOnSendMessage = (message: string) => {
     append({

@@ -16,8 +16,13 @@ const nextConfig = {
     // Resolve critical dependency issue
     config.module.exprContextCritical = false;
     
+    // Add resolve fallbacks for ai/react
+    config.resolve.alias['ai/react'] = require.resolve('ai/react');
+    
     return config;
   },
+  // Transpile specific modules that might cause issues
+  transpilePackages: ['ai'],
 };
 
 module.exports = nextConfig
