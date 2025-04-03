@@ -2,6 +2,7 @@ import './globals.css'
 import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/react';
 import { Space_Grotesk } from 'next/font/google';
+import ServiceWorkerRegistry from './components/ServiceWorkerRegistry';
 
 // Initialize the Space Grotesk font
 const spaceGrotesk = Space_Grotesk({
@@ -24,6 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={spaceGrotesk.variable}>
       <body className={spaceGrotesk.className}>
+        {/* Register service worker for PDF.js worker caching */}
+        <ServiceWorkerRegistry />
         {children}
         <Analytics />
       </body>

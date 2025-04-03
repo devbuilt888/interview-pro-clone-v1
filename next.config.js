@@ -34,6 +34,68 @@ const nextConfig = {
   },
   // Transpile specific modules that might cause issues
   transpilePackages: ['ai', 'pdfjs-dist'],
+  // Add server caching for PDF.js worker for better performance
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Add specific caching for PDF.js worker
+        source: '/pdf.worker.min.js',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Cache CDN resources
+        source: '/(.*).worker.min.js',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Proper caching for standard fonts
+        source: '/standard_fonts/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Proper caching for CMap files
+        source: '/cmaps/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+    ];
+  },
+  // Extend Next.js to support service worker for PDF.js worker caching
+  experimental: {
+    serviceworker: {
+      register: true,
+      scope: '/',
+      cache: 'true',
+    },
+  },
 };
 
 module.exports = nextConfig
