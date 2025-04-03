@@ -64,10 +64,12 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   const [isUIReady, setIsUIReady] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
   const [loadingComplete, setLoadingComplete] = useState(false);
+  const [introSpoken, setIntroSpoken] = useState(false);
   const initialMessageSent = useRef(false);
   const soundPlayed = useRef(false);
   const setupAttempted = useRef(false);
   const connectionAttempts = useRef(0);
+  const welcomeMessage = "Hello! I'm your interviewer today. I'll be reviewing your resume and asking you some questions.";
 
   // Add minimum loading time of 5 seconds
   useEffect(() => {
@@ -77,6 +79,26 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
 
     return () => clearTimeout(timer);
   }, []);
+
+  // Speak the welcome message on the loading screen
+  useEffect(() => {
+    if (loadingComplete && !introSpoken && window.speechSynthesis) {
+      const speakWelcome = async () => {
+        try {
+          console.log('Speaking welcome message...');
+          await speakText(welcomeMessage);
+          console.log('Welcome message spoken, ready to start interview');
+          setIntroSpoken(true);
+        } catch (error) {
+          console.error('Error speaking welcome message:', error);
+          // If there's an error speaking, still proceed
+          setIntroSpoken(true);
+        }
+      };
+      
+      speakWelcome();
+    }
+  }, [loadingComplete]);
 
   // Use the useChat hook for better message handling
   const { append, messages: chatMessages } = useChat({
@@ -472,7 +494,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     );
   }
 
-  if (!loadingComplete || !isConnected || !token || !roomName || !wsUrl) {
+  // Show loading screen until both loading timeout completes AND welcome message is spoken
+  if (!loadingComplete || !introSpoken || !isConnected || !token || !roomName || !wsUrl) {
     return (
       <div className="loading-container">
         <div className="loading-message">
@@ -486,8 +509,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
             />
           </div>
           <div className="loading-text">
-            <TypeWriter text="Hello! I'm your interviewer today. I'll be reviewing your resume and asking you some questions." />
-            <h3>Connecting to interview room...</h3>
+            <TypeWriter text={welcomeMessage} />
+            <h3>Connecting to interview room{loadingComplete && !introSpoken ? ', please wait...' : '...'}</h3>
             <div className="loading-spinner"></div>
           </div>
         </div>
