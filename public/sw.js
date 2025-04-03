@@ -3,15 +3,19 @@
  * This service worker improves the caching of PDF.js resources for better performance
  */
 
-const PDF_JS_CACHE = 'pdfjs-cache-v1';
+const PDF_JS_CACHE = 'pdfjs-cache-v2';
 const PDF_JS_RESOURCES = [
   // PDF.js worker files from unpkg (primary)
-  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js',
-  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.js',
+  'https://unpkg.com/pdfjs-dist@4.0.379/legacy/build/pdf.worker.js',
+  'https://unpkg.com/pdfjs-dist@4.0.379/legacy/build/pdf.js',
   
   // Fallback CDN files (cdnjs)
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/legacy/build/pdf.worker.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/legacy/build/pdf.js',
+  
+  // Additional fallbacks (jsdelivr)
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/legacy/build/pdf.worker.js',
+  'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/legacy/build/pdf.js',
   
   // PDF.js supporting resources
   'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
@@ -20,8 +24,8 @@ const PDF_JS_RESOURCES = [
 
 // Patterns to match for caching
 const PDF_JS_URL_PATTERNS = [
-  /pdf\.worker\.min\.js$/,
-  /pdf\.min\.js$/,
+  /pdf\.worker\.js$/,
+  /pdf\.js$/,
   /\/cmaps\//,
   /\/standard_fonts\//,
   /pdfjs-dist/

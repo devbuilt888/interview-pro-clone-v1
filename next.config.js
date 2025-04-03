@@ -10,8 +10,8 @@ const nextConfig = {
   },
   // Add webpack configuration to handle PDF.js correctly
   webpack: (config, { isServer }) => {
-    // Use proper handling for PDF.js
-    config.resolve.alias.pdfjs = 'pdfjs-dist/build/pdf.min.mjs';
+    // Use proper handling for PDF.js legacy bundle
+    config.resolve.alias.pdfjs = 'pdfjs-dist/legacy/build/pdf.js';
     
     // Resolve critical dependency issue
     config.module.exprContextCritical = false;
@@ -31,12 +31,12 @@ const nextConfig = {
       
       // Add specific handling for PDF.js worker in serverless
       config.externals.push({
-        'pdfjs-dist/build/pdf.worker.min.mjs': 'pdfjs-dist/build/pdf.worker.min.mjs',
+        'pdfjs-dist/legacy/build/pdf.worker.js': 'pdfjs-dist/legacy/build/pdf.worker.js',
       });
     } else {
       // On client side, ensure the worker is properly included
-      config.resolve.alias['pdfjs-dist/build/pdf.worker.min.mjs'] = 
-        require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');
+      config.resolve.alias['pdfjs-dist/legacy/build/pdf.worker.js'] = 
+        require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
     }
     
     return config;
@@ -57,7 +57,7 @@ const nextConfig = {
       },
       {
         // Add specific caching for PDF.js worker
-        source: '/pdf.worker.min.js',
+        source: '/pdf.worker.js',
         headers: [
           {
             key: 'Cache-Control',
@@ -67,7 +67,7 @@ const nextConfig = {
       },
       {
         // Cache CDN resources
-        source: '/(.*).worker.min.js',
+        source: '/(.*).worker.js',
         headers: [
           {
             key: 'Cache-Control',

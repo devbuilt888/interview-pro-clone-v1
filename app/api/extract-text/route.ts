@@ -1,6 +1,7 @@
 // import formidable from "formidable";
 import { NextResponse, NextRequest } from 'next/server';
 import { OpenAI } from 'openai';
+import { initPdfJs, getServerlessConfig, getPdfJsVersion } from '../../utils/pdf-helper';
 
 // Define types for PDF.js since we're using dynamic import
 interface PDFDocumentProxy {
@@ -90,19 +91,13 @@ async function preloadPdfJsWorker() {
   
   try {
     console.log('Preloading PDF.js worker...');
-    const pdfjs = await import('pdfjs-dist');
     
-    // Use unpkg CDN instead of cdnjs as it has the correct version
-    const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
+    // Use our helper to initialize PDF.js properly
+    const pdfjs = await initPdfJs();
     
-    // Check if GlobalWorkerOptions exists before trying to set it
-    if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
-      console.log(`Set worker source to: ${PDFJS_CDN}`);
-    } else {
-      console.warn('GlobalWorkerOptions not available, using workerPort approach');
-      // Some versions might use a different approach for workers
-      // We'll handle this in the extraction function
+    if (!pdfjs) {
+      console.warn('PDF.js initialization failed, will try again later');
+      return;
     }
     
     // Create a minimal PDF to initialize the worker
@@ -142,11 +137,10 @@ async function preloadPdfJsWorker() {
     
     // Load a tiny PDF just to initialize the worker
     try {
+      const serverlessConfig = getServerlessConfig();
       const task = pdfjs.getDocument({
         data: minimalPdf,
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        disableFontFace: true,
+        ...serverlessConfig
       });
       
       // Set a short timeout for this preloading task
@@ -177,28 +171,20 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Import PDF.js but don't configure the worker
-    const pdfjs = await import('pdfjs-dist');
+    // Initialize PDF.js properly for serverless environment
+    const pdfjs = await initPdfJs();
+    
+    if (!pdfjs) {
+      throw new Error('Failed to initialize PDF.js for worker-free extraction');
+    }
+    
+    // Get appropriate serverless configuration
+    const serverlessConfig = getServerlessConfig();
     
     // Create a document loading task with strict non-worker settings
     const loadingTask = pdfjs.getDocument({
       data: fileData,
-      disableFontFace: true,
-      useSystemFonts: false,
-      useWorkerFetch: false,
-      isEvalSupported: false,
-      // If available in this version, explicitly disable the worker
-      // TypeScript doesn't know about this property, but it's supported in some versions
-      // @ts-ignore - intentionally using non-standard option
-      disableWorker: true,
-      // Disable advanced features that might require a worker
-      // @ts-ignore - intentionally using non-standard options
-      disableRangeRequests: true,
-      // @ts-ignore
-      disableAutoFetch: true,
-      // @ts-ignore
-      disableStream: true,
-      cMapPacked: false,
+      ...serverlessConfig
     });
     
     // Using a shorter timeout for serverless
@@ -279,23 +265,11 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
     // If the worker-free approach failed or returned insufficient text, try the standard approach
     if (!fullText || fullText.trim().length < 200) {
       try {
-        // Dynamic import of PDF.js to avoid build-time issues
-        const pdfjs = await import('pdfjs-dist');
+        // Initialize PDF.js with our helper
+        const pdfjs = await initPdfJs();
         
-        // Use unpkg CDN instead of cdnjs as it has the correct version
-        const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
-        
-        // Safely set the worker source with error handling
-        try {
-          if (pdfjs.GlobalWorkerOptions) {
-            pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
-            console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
-          } else {
-            console.warn('GlobalWorkerOptions not available, trying alternative approach');
-            // In some environments, we might need to disable workers completely
-          }
-        } catch (workerError) {
-          console.warn('Error setting worker source, proceeding without worker:', workerError);
+        if (!pdfjs) {
+          throw new Error('Failed to initialize PDF.js for standard extraction');
         }
         
         // Create a document loading task with improved options and fallbacks
@@ -305,9 +279,6 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
           useSystemFonts: true,
           useWorkerFetch: false, // Important for serverless
           isEvalSupported: false, // Important for serverless
-          // Workaround for serverless - we'll handle this differently
-          // disableWorker: true is not a standard option but it works in some PDF.js versions
-          ...(typeof pdfjs.GlobalWorkerOptions === 'undefined' ? { disableWorker: true } : {}),
           // CMap options - using unpkg instead of self-hosted
           cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
           cMapPacked: true,
@@ -367,7 +338,7 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
             
             // Combine annotation text and page text
             standardText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
-            
+        
             page.cleanup();
           } catch (pageError) {
             console.warn(`Error extracting text from page ${pageNum}:`, pageError);
@@ -606,8 +577,7 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
             // Extract text from Tj and TJ operators
             const textContent = block
               .replace(/BT|ET/g, '') // Remove BT/ET markers
-              .replace(/Tj|TJ/g, '') // Remove Tj/TJ operators
-              .replace(/[\(\)]/g, '') // Remove parentheses
+              .replace(/\(([^)]+)\)/g, '$1') // Extract text from parentheses instead of removing operators
               .trim();
             return textContent;
           })
@@ -615,7 +585,7 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
           .replace(/\s+/g, ' ') // Normalize whitespace
           .trim();
       },
-      
+    
       // 2. Extract from parentheses directly (common in PDF text)
       () => {
         console.log('Trying parentheses extraction...');
@@ -624,6 +594,7 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
         
         return fallbackMatches
           .map(match => match.slice(1, -1))
+          .filter(text => text.trim().length > 0)
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
@@ -637,25 +608,9 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
         if (!wordMatches) return '';
         
         return wordMatches
+          .filter(word => word.trim().length > 2)
           .join(' ')
           .replace(/\s+/g, ' ')
-          .trim();
-      },
-      
-      // 4. Try to extract text directly from stream objects
-      () => {
-        console.log('Trying stream extraction...');
-        const streamMatches = text.match(/stream([\s\S]*?)endstream/g);
-        if (!streamMatches) return '';
-        
-        return streamMatches
-          .map(stream => {
-            return stream
-              .replace(/stream|endstream/g, '')
-              .replace(/[^a-zA-Z0-9\s\.\,\:\;\-\']/g, ' ')
-              .replace(/\s+/g, ' ');
-          })
-          .join(' ')
           .trim();
       }
     ];
@@ -664,7 +619,7 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
     for (const approach of approaches) {
       const result = approach();
       
-      if (result && result.length > 100) {
+      if (result && result.length > 200) {
         extractedText = result;
         break;
       } else if (result) {
@@ -675,11 +630,26 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
     
     console.log(`Fallback extraction got ${extractedText.length} characters`);
     
-    // Try to clean up the text
+    // Clean up the text much more aggressively
     extractedText = extractedText
       .replace(/[^\x20-\x7E\r\n]/g, ' ') // Remove non-printable chars
       .replace(/\s+/g, ' ')              // Normalize whitespace
+      .replace(/\d{5,}/g, ' ')           // Remove long number sequences (noise)
+      .replace(/[^\w\s\.\,\:\;\-\'\"]/g, ' ') // Only keep standard punctuation
+      .replace(/(.)\1{4,}/g, '$1')       // Remove character repetitions (like "AAAAA")
       .trim();
+    
+    // If extraction resulted in very noisy text (mostly symbols), use a generic response
+    if (extractedText.length > 200) {
+      const wordRegex = /[a-zA-Z]{3,}/g;
+      const words = extractedText.match(wordRegex) || [];
+      const wordRatio = words.length / (extractedText.length / 5); // Approximate word ratio
+      
+      if (wordRatio < 0.1) {
+        console.log('Extracted text appears to be mostly noise, using generic response');
+        return getGenericResumeText(nameInfo || "Candidate");
+      }
+    }
     
     // Parse the extracted text into structured resume data
     try {
@@ -695,8 +665,8 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
     
     // If we still couldn't extract meaningful text, return fallback
     if (!extractedText || extractedText.length < 100) {
-      console.log('Fallback extraction failed, returning default text');
-      return getFallbackText();
+      console.log('Fallback extraction failed, returning generic response');
+      return getGenericResumeText(nameInfo || "Candidate");
     }
     
     // Add section markers for OpenAI
@@ -710,8 +680,37 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
       
   } catch (error) {
     console.error('Error in fallback extraction:', error);
-    return getFallbackText();
+    return getGenericResumeText("Candidate");
   }
+}
+
+// Function to get a generic but helpful response for the interviewer
+function getGenericResumeText(name: string): string {
+  return `--- RESUME START (GENERIC FALLBACK) ---
+Name: ${name}
+
+Summary: 
+A professional with experience across multiple domains. Looking for opportunities to utilize skills and experience in a challenging role.
+
+Experience:
+- Previous work experience in relevant fields
+- Project management and team collaboration
+- Problem-solving and analytical thinking
+
+Skills:
+- Communication and interpersonal skills
+- Technical aptitude and adaptability
+- Time management and organization
+
+Education:
+- Academic background in relevant field
+- Continuous professional development
+--- RESUME END ---`;
+}
+
+// Function to get fallback text
+function getFallbackText(): string {
+  return getGenericResumeText("John Doe");
 }
 
 // Function to extract name from text with multiple patterns
@@ -754,16 +753,6 @@ function extractNameFromText(text: string): string | null {
   }
   
   return null;
-}
-
-// Function to get fallback text
-function getFallbackText(): string {
-  return `John Doe
-Software Engineer
-5+ years of experience in full-stack development
-Skills: JavaScript, TypeScript, React, Node.js, Python
-Experience: Senior Developer at Tech Corp (2020-present)
-Education: BS Computer Science, University of Technology (2019)`;
 }
 
 // Function to fetch OpenAI response
@@ -826,7 +815,7 @@ export async function POST(req: NextRequest) {
 
     // Log environment information to help with debugging
     console.log(`Node environment: ${process.env.NODE_ENV}`);
-    console.log(`PDF.js version: ${await getPdfJsVersion()}`);
+    console.log(`PDF.js version: ${await getPdfJsVersionInfo()}`);
 
     const arrayBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(arrayBuffer);
@@ -879,11 +868,6 @@ export async function POST(req: NextRequest) {
 }
 
 // Helper function to get PDF.js version information
-async function getPdfJsVersion(): Promise<string> {
-  try {
-    const pdfjs = await import('pdfjs-dist');
-    return pdfjs.version || 'Version not available';
-  } catch (e) {
-    return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
-  }
+async function getPdfJsVersionInfo(): Promise<string> {
+  return await getPdfJsVersion();
 }
