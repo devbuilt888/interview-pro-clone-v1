@@ -5,13 +5,26 @@
 
 const PDF_JS_CACHE = 'pdfjs-cache-v1';
 const PDF_JS_RESOURCES = [
-  // PDF.js worker files
+  // PDF.js worker files from unpkg (primary)
+  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js',
+  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.js',
+  
+  // Fallback CDN files (cdnjs)
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js',
   
   // PDF.js supporting resources
   'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
   'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/'
+];
+
+// Patterns to match for caching
+const PDF_JS_URL_PATTERNS = [
+  /pdf\.worker\.min\.js$/,
+  /pdf\.min\.js$/,
+  /\/cmaps\//,
+  /\/standard_fonts\//,
+  /pdfjs-dist/
 ];
 
 // Install event - cache key resources
@@ -44,18 +57,22 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+// Check if a URL matches any of our PDF.js patterns
+function isPdfJsUrl(url) {
+  return PDF_JS_URL_PATTERNS.some(pattern => pattern.test(url));
+}
+
 // Fetch event - serve from cache first, then network
 self.addEventListener('fetch', event => {
-  // Only handle PDF.js related requests
-  if (event.request.url.includes('pdf.js') || 
-      event.request.url.includes('cmaps') || 
-      event.request.url.includes('standard_fonts')) {
-    
+  const url = event.request.url;
+  
+  // Handle PDF.js resources using our pattern matching
+  if (isPdfJsUrl(url)) {
     event.respondWith(
       caches.match(event.request).then(response => {
         // Return cached response if found
         if (response) {
-          console.log('Service worker serving from cache:', event.request.url);
+          console.log('Service worker serving from cache:', url);
           return response;
         }
         
@@ -66,11 +83,15 @@ self.addEventListener('fetch', event => {
             const responseToCache = networkResponse.clone();
             caches.open(PDF_JS_CACHE).then(cache => {
               cache.put(event.request, responseToCache);
-              console.log('Service worker caching new resource:', event.request.url);
+              console.log('Service worker caching new resource:', url);
             });
           }
           
           return networkResponse;
+        }).catch(error => {
+          console.error('Service worker fetch error:', error, 'for URL:', url);
+          // Return a fallback response or let the error propagate
+          throw error;
         });
       })
     );

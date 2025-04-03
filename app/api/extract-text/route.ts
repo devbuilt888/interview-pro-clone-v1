@@ -92,9 +92,18 @@ async function preloadPdfJsWorker() {
     console.log('Preloading PDF.js worker...');
     const pdfjs = await import('pdfjs-dist');
     
-    // Use a CDN that matches our package version
-    const PDFJS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js";
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+    // Use unpkg CDN instead of cdnjs as it has the correct version
+    const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
+    
+    // Check if GlobalWorkerOptions exists before trying to set it
+    if (pdfjs.GlobalWorkerOptions) {
+      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+      console.log(`Set worker source to: ${PDFJS_CDN}`);
+    } else {
+      console.warn('GlobalWorkerOptions not available, using workerPort approach');
+      // Some versions might use a different approach for workers
+      // We'll handle this in the extraction function
+    }
     
     // Create a minimal PDF to initialize the worker
     const minimalPdf = new Uint8Array([
@@ -163,102 +172,234 @@ async function preloadPdfJsWorker() {
 // Attempt to preload the worker
 preloadPdfJsWorker();
 
-// Improved serverless-compatible PDF.js implementation
-async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
+// Serverless-specific PDF extraction that doesn't rely on workers
+async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
-    console.log('Extracting text using PDF.js with serverless compatibility...');
+    console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Dynamic import of PDF.js to avoid build-time issues
+    // Import PDF.js but don't configure the worker
     const pdfjs = await import('pdfjs-dist');
     
-    // Using CDN-hosted worker that matches package version (4.0.379)
-    const PDFJS_CDN = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js";
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
-    
-    console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
-    
-    // Create a document loading task with improved options
+    // Create a document loading task with strict non-worker settings
     const loadingTask = pdfjs.getDocument({
       data: fileData,
       disableFontFace: true,
-      useSystemFonts: true,
-      useWorkerFetch: false, // Important for serverless
-      isEvalSupported: false, // Important for serverless
-      // Enable CMap support for better character rendering
-      cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
-      cMapPacked: true,
-      // More robust font handling
-      standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/',
+      useSystemFonts: false,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      // If available in this version, explicitly disable the worker
+      // TypeScript doesn't know about this property, but it's supported in some versions
+      // @ts-ignore - intentionally using non-standard option
+      disableWorker: true,
+      // Disable advanced features that might require a worker
+      // @ts-ignore - intentionally using non-standard options
+      disableRangeRequests: true,
+      // @ts-ignore
+      disableAutoFetch: true,
+      // @ts-ignore
+      disableStream: true,
+      cMapPacked: false,
     });
     
-    // Using a timeout to prevent hanging in case of worker issues
+    // Using a shorter timeout for serverless
     const pdfDocumentPromise = Promise.race([
       loadingTask.promise,
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
+        setTimeout(() => reject(new Error('PDF loading timed out')), 15000)
       )
     ]);
     
     // Load the document
     const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
-    console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
+    console.log(`Worker-free PDF loaded with ${pdfDocument.numPages} pages`);
     
-    // Extract text from each page with improved handling
+    // Extract text with a minimalist approach
     let fullText = '';
-    const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
+    const maxPages = Math.min(pdfDocument.numPages, 5); // Limit to 5 pages for serverless
     
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       try {
         const page = await pdfDocument.getPage(pageNum);
         
-        // Try to get annotations (like form fields) that might contain text
-        let annotationText = '';
-        try {
-          const annotations = await page.getAnnotations();
-          if (annotations && annotations.length > 0) {
-            for (const annot of annotations) {
-              if (annot.fieldValue && typeof annot.fieldValue === 'string') {
-                annotationText += annot.fieldValue + '\n';
-              }
-              if (annot.contents && typeof annot.contents === 'string') {
-                annotationText += annot.contents + '\n';
-              }
-            }
-          }
-        } catch (annotError) {
-          console.warn(`Error extracting annotations from page ${pageNum}:`, annotError);
+        // Get text content with minimal options
+        const textContent = await page.getTextContent();
+        
+        // Basic text extraction
+        if (textContent && textContent.items) {
+          const pageText = textContent.items
+            .filter(item => 'str' in item && typeof item.str === 'string')
+            .map(item => (item as TextItem).str)
+            .join(' ');
+          
+          fullText += pageText + '\n\n';
         }
-        
-        // Get text content with enhanced options
-        const textContent = await page.getTextContent({
-          // Request more detailed text content for better formatting
-          includeMarkedContent: true,
-          disableCombineTextItems: false,
-          // Adds support for expanded character and feature sets
-          normalizeWhitespace: true,
-        });
-        
-        // Use improved text content merger for better formatting
-        const pageText = mergeTextContent(textContent);
-        
-        // Combine annotation text and page text
-        fullText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
         
         page.cleanup();
       } catch (pageError) {
-        console.warn(`Error extracting text from page ${pageNum}:`, pageError);
+        console.warn(`Error extracting text from page ${pageNum} in worker-free mode:`, pageError);
       }
     }
     
-    // Clean up the PDF document
+    // Clean up
     try {
       pdfDocument.destroy();
     } catch (e) {
-      console.warn('Error destroying PDF document:', e);
+      console.warn('Error cleaning up PDF document in worker-free mode:', e);
+    }
+    
+    return fullText.trim();
+  } catch (error) {
+    console.error('Error in worker-free extraction:', error);
+    throw error; // Let the caller handle this
+  }
+}
+
+// Update the main extractTextFromPDF function to use the fallback if needed
+async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
+  try {
+    console.log('Extracting text using PDF.js with serverless compatibility...');
+    
+    // First try the worker-free approach for serverless
+    let fullText = '';
+    try {
+      fullText = await extractTextWithoutWorker(fileData);
+      
+      // If we got enough text, use it directly
+      if (fullText && fullText.trim().length > 200) {
+        console.log('Successfully extracted text using worker-free approach');
+        // Continue with the same processing
+      } else {
+        console.log('Worker-free extraction returned insufficient text, trying standard approach');
+        fullText = ''; // Reset to try the standard approach
+      }
+    } catch (workerFreeError) {
+      console.warn('Worker-free extraction failed, trying standard approach:', workerFreeError);
+    }
+    
+    // If the worker-free approach failed or returned insufficient text, try the standard approach
+    if (!fullText || fullText.trim().length < 200) {
+      try {
+        // Dynamic import of PDF.js to avoid build-time issues
+        const pdfjs = await import('pdfjs-dist');
+        
+        // Use unpkg CDN instead of cdnjs as it has the correct version
+        const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
+        
+        // Safely set the worker source with error handling
+        try {
+          if (pdfjs.GlobalWorkerOptions) {
+            pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+            console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
+          } else {
+            console.warn('GlobalWorkerOptions not available, trying alternative approach');
+            // In some environments, we might need to disable workers completely
+          }
+        } catch (workerError) {
+          console.warn('Error setting worker source, proceeding without worker:', workerError);
+        }
+        
+        // Create a document loading task with improved options and fallbacks
+        const loadingTask = pdfjs.getDocument({
+          data: fileData,
+          disableFontFace: true,
+          useSystemFonts: true,
+          useWorkerFetch: false, // Important for serverless
+          isEvalSupported: false, // Important for serverless
+          // Workaround for serverless - we'll handle this differently
+          // disableWorker: true is not a standard option but it works in some PDF.js versions
+          ...(typeof pdfjs.GlobalWorkerOptions === 'undefined' ? { disableWorker: true } : {}),
+          // CMap options - using unpkg instead of self-hosted
+          cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
+          cMapPacked: true,
+          // Standard font data
+          standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/',
+        });
+        
+        // Using a timeout to prevent hanging in case of worker issues
+        const pdfDocumentPromise = Promise.race([
+          loadingTask.promise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
+          )
+        ]);
+        
+        // Load the document
+        const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
+        console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
+        
+        // Extract text from each page with improved handling
+        let standardText = '';
+        const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
+        
+        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+          try {
+            const page = await pdfDocument.getPage(pageNum);
+            
+            // Try to get annotations (like form fields) that might contain text
+            let annotationText = '';
+            try {
+              const annotations = await page.getAnnotations();
+              if (annotations && annotations.length > 0) {
+                for (const annot of annotations) {
+                  if (annot.fieldValue && typeof annot.fieldValue === 'string') {
+                    annotationText += annot.fieldValue + '\n';
+                  }
+                  if (annot.contents && typeof annot.contents === 'string') {
+                    annotationText += annot.contents + '\n';
+                  }
+                }
+              }
+            } catch (annotError) {
+              console.warn(`Error extracting annotations from page ${pageNum}:`, annotError);
+            }
+            
+            // Get text content with enhanced options
+            const textContent = await page.getTextContent({
+              // Request more detailed text content for better formatting
+              includeMarkedContent: true,
+              disableCombineTextItems: false,
+              // Adds support for expanded character and feature sets
+              normalizeWhitespace: true,
+            });
+            
+            // Use improved text content merger for better formatting
+            const pageText = mergeTextContent(textContent);
+            
+            // Combine annotation text and page text
+            standardText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
+            
+            page.cleanup();
+          } catch (pageError) {
+            console.warn(`Error extracting text from page ${pageNum}:`, pageError);
+          }
+        }
+        
+        // Clean up the PDF document
+        try {
+          pdfDocument.destroy();
+        } catch (e) {
+          console.warn('Error destroying PDF document:', e);
+        }
+        
+        // If we got useful text from the standard approach, use it
+        if (standardText && standardText.trim().length > 200) {
+          fullText = standardText;
+          console.log('Successfully extracted text using standard PDF.js approach');
+        }
+      } catch (standardError) {
+        console.error('Error using standard PDF.js approach:', standardError);
+        // If we have some text from the worker-free approach, use it even if it's not ideal
+        if (fullText && fullText.trim().length > 0) {
+          console.log('Using partial results from worker-free extraction');
+        } else {
+          // Otherwise fall back to regex method
+          return await fallbackExtraction(fileData);
+        }
+      }
     }
     
     // If we successfully extracted text
-    if (fullText.trim().length > 100) {
+    if (fullText && fullText.trim().length > 100) {
       console.log(`Successfully extracted ${fullText.length} characters of text with PDF.js`);
       
       // Parse the extracted text into structured resume data
@@ -449,38 +590,96 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
       sections.name = nameInfo;
     }
     
-    // Extract text content using regex patterns
+    // Extract text content using multiple regex patterns for more robust extraction
     let extractedText = '';
     
-    // 1. Extract text between BT (Begin Text) and ET (End Text) markers
-    const textMatches = text.match(/BT[\s\S]*?ET/g);
-    if (textMatches) {
-      extractedText = textMatches
-        .map(block => {
-          // Extract text from Tj and TJ operators
-          const textContent = block
-            .replace(/BT|ET/g, '') // Remove BT/ET markers
-            .replace(/Tj|TJ/g, '') // Remove Tj/TJ operators
-            .replace(/[\(\)]/g, '') // Remove parentheses
-            .trim();
-          return textContent;
-        })
-        .join(' ')
-        .replace(/\s+/g, ' ') // Normalize whitespace
-        .trim();
-    }
-    
-    // 2. Try extracting from parentheses as a fallback
-    if (!extractedText || extractedText.length < 100) {
-      const fallbackMatches = text.match(/\(([^)]+)\)/g);
-      if (fallbackMatches) {
-        extractedText = fallbackMatches
+    // Try multiple extraction approaches
+    const approaches = [
+      // 1. Extract text between BT (Begin Text) and ET (End Text) markers
+      () => {
+        console.log('Trying BT/ET extraction...');
+        const textMatches = text.match(/BT[\s\S]*?ET/g);
+        if (!textMatches) return '';
+        
+        return textMatches
+          .map(block => {
+            // Extract text from Tj and TJ operators
+            const textContent = block
+              .replace(/BT|ET/g, '') // Remove BT/ET markers
+              .replace(/Tj|TJ/g, '') // Remove Tj/TJ operators
+              .replace(/[\(\)]/g, '') // Remove parentheses
+              .trim();
+            return textContent;
+          })
+          .join(' ')
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+      },
+      
+      // 2. Extract from parentheses directly (common in PDF text)
+      () => {
+        console.log('Trying parentheses extraction...');
+        const fallbackMatches = text.match(/\(([^)]+)\)/g);
+        if (!fallbackMatches) return '';
+        
+        return fallbackMatches
           .map(match => match.slice(1, -1))
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
+      },
+      
+      // 3. Try to find plain text words (common in some PDFs)
+      () => {
+        console.log('Trying word pattern extraction...');
+        // Extract blocks that look like words (3+ alpha characters)
+        const wordMatches = text.match(/[a-zA-Z]{3,}[a-zA-Z\s\.\,\:\;\-\']{2,}/g);
+        if (!wordMatches) return '';
+        
+        return wordMatches
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      },
+      
+      // 4. Try to extract text directly from stream objects
+      () => {
+        console.log('Trying stream extraction...');
+        const streamMatches = text.match(/stream([\s\S]*?)endstream/g);
+        if (!streamMatches) return '';
+        
+        return streamMatches
+          .map(stream => {
+            return stream
+              .replace(/stream|endstream/g, '')
+              .replace(/[^a-zA-Z0-9\s\.\,\:\;\-\']/g, ' ')
+              .replace(/\s+/g, ' ');
+          })
+          .join(' ')
+          .trim();
+      }
+    ];
+    
+    // Try each approach until we get enough text
+    for (const approach of approaches) {
+      const result = approach();
+      
+      if (result && result.length > 100) {
+        extractedText = result;
+        break;
+      } else if (result) {
+        // If we got some text but not enough, append it
+        extractedText += ' ' + result;
       }
     }
+    
+    console.log(`Fallback extraction got ${extractedText.length} characters`);
+    
+    // Try to clean up the text
+    extractedText = extractedText
+      .replace(/[^\x20-\x7E\r\n]/g, ' ') // Remove non-printable chars
+      .replace(/\s+/g, ' ')              // Normalize whitespace
+      .trim();
     
     // Parse the extracted text into structured resume data
     try {
@@ -496,8 +695,12 @@ async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
     
     // If we still couldn't extract meaningful text, return fallback
     if (!extractedText || extractedText.length < 100) {
+      console.log('Fallback extraction failed, returning default text');
       return getFallbackText();
     }
+    
+    // Add section markers for OpenAI
+    extractedText = "--- RESUME START (FALLBACK EXTRACTION) ---\n" + extractedText + "\n--- RESUME END ---";
     
     // Limit the text to avoid token limits
     const maxLength = 7500;
@@ -621,6 +824,10 @@ export async function POST(req: NextRequest) {
 
     console.log(`File received: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
 
+    // Log environment information to help with debugging
+    console.log(`Node environment: ${process.env.NODE_ENV}`);
+    console.log(`PDF.js version: ${await getPdfJsVersion()}`);
+
     const arrayBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(arrayBuffer);
     console.log(`File buffer created, length: ${fileData.length} bytes`);
@@ -644,7 +851,20 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    // Enhanced error logging with full stack trace and details
     console.error('Error in PDF extraction:', error);
+    if (error instanceof Error) {
+      console.error(`Error name: ${error.name}`);
+      console.error(`Error message: ${error.message}`);
+      console.error(`Error stack: ${error.stack}`);
+      
+      // For TypeErrors, log more details
+      if (error.name === 'TypeError') {
+        console.error('TypeScript TypeError detected - likely related to PDF.js Worker configuration');
+        console.error('This may be a serverless compatibility issue with PDF.js workers');
+      }
+    }
+
     return new Response(JSON.stringify({ 
       status: 'error',
       error: 'Failed to process PDF',
@@ -655,5 +875,15 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
       },
     });
+  }
+}
+
+// Helper function to get PDF.js version information
+async function getPdfJsVersion(): Promise<string> {
+  try {
+    const pdfjs = await import('pdfjs-dist');
+    return pdfjs.version || 'Version not available';
+  } catch (e) {
+    return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
   }
 }

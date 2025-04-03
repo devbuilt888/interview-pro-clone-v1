@@ -19,7 +19,7 @@ const nextConfig = {
     // Add resolve fallbacks for ai/react
     config.resolve.alias['ai/react'] = require.resolve('ai/react');
     
-    // Fix for serverless environments
+    // Fix for serverless environments - more explicit worker handling
     if (isServer) {
       const nodeBuiltins = ['fs', 'path', 'url', 'http', 'https', 'stream', 'zlib'];
       nodeBuiltins.forEach(builtin => {
@@ -28,6 +28,15 @@ const nextConfig = {
           [builtin]: false,
         };
       });
+      
+      // Add specific handling for PDF.js worker in serverless
+      config.externals.push({
+        'pdfjs-dist/build/pdf.worker.min.mjs': 'pdfjs-dist/build/pdf.worker.min.mjs',
+      });
+    } else {
+      // On client side, ensure the worker is properly included
+      config.resolve.alias['pdfjs-dist/build/pdf.worker.min.mjs'] = 
+        require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');
     }
     
     return config;
