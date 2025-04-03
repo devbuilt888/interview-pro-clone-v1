@@ -64,88 +64,11 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
   const [isUIReady, setIsUIReady] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
   const [loadingComplete, setLoadingComplete] = useState(false);
-  const [introSpoken, setIntroSpoken] = useState(false);
+  const [introductionSpoken, setIntroductionSpoken] = useState(false);
   const initialMessageSent = useRef(false);
   const soundPlayed = useRef(false);
   const setupAttempted = useRef(false);
   const connectionAttempts = useRef(0);
-  const welcomeMessage = "Hello! I'm your interviewer today. I'll be reviewing your resume and asking you some questions.";
-
-  // Add minimum loading time of 5 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoadingComplete(true);
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Speak the welcome message on the loading screen
-  useEffect(() => {
-    if (loadingComplete && !introSpoken && window.speechSynthesis) {
-      const speakWelcome = async () => {
-        try {
-          console.log('Speaking welcome message...');
-          await speakText(welcomeMessage);
-          console.log('Welcome message spoken, ready to start interview');
-          setIntroSpoken(true);
-        } catch (error) {
-          console.error('Error speaking welcome message:', error);
-          // If there's an error speaking, still proceed
-          setIntroSpoken(true);
-        }
-      };
-      
-      speakWelcome();
-    }
-  }, [loadingComplete]);
-
-  // Use the useChat hook for better message handling
-  const { append, messages: chatMessages } = useChat({
-    api: '/api/openai-gpt',
-    // Skip initialMessages entirely and use our first message approach
-    onFinish: (message) => {
-      // Only speak the complete message when it's fully received
-      if (message.role === 'assistant') {
-        speakText(message.content).catch(console.error);
-
-        // Check if this is the final message (contains the goodbye message)
-        if (message.content.includes('Thank you for your time') &&
-          message.content.includes('have a great day')
-        ) {
-          setIsInterviewComplete(true);
-        }
-      }
-    }
-  });
-
-  // MediaRecorder setup
-  const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const audioChunks = useRef<Blob[]>([]);
-
-  // Add ref for messages container
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Play transformers sound when loading - only once
-  useEffect(() => {
-    if (!isConnected && !soundPlayed.current) {
-      playTransformersSound();
-      soundPlayed.current = true;
-    }
-  }, [isConnected]);
-
-  // Play game-end sound when interview is complete - only once
-  useEffect(() => {
-    if (isInterviewComplete && soundPlayed.current) {
-      playGameEndSound();
-      soundPlayed.current = false; // Reset for potential new interview
-    }
-  }, [isInterviewComplete]);
 
   // Memoize the speakText function to prevent unnecessary re-renders
   const speakText = useCallback(async (text: string) => {
@@ -180,11 +103,111 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     }
   }, []);
 
-  // Apply the initial message - only once, and only if provided
+  // Loading screen welcome message
+  const welcomeMessage = "Hello! I'm your interviewer today. I'll be reviewing your resume and asking you some questions.";
+
+  // Add minimum loading time and speak welcome message
   useEffect(() => {
-    if (initialText && !initialMessageSent.current && isConnected && isUIReady) {
+    const handleIntroduction = async () => {
+      try {
+        // Play transformers sound first (if not already played)
+        if (!soundPlayed.current) {
+          playTransformersSound();
+          soundPlayed.current = true;
+          
+          // Give some time for the sound to start
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        // Speak the welcome message
+        console.log('Speaking welcome message on loading screen');
+        await speakText(welcomeMessage);
+        
+        // Mark introduction as spoken
+        setIntroductionSpoken(true);
+        
+        // Wait the minimum 5 seconds before completing loading
+        const timeElapsed = Date.now() - startTime;
+        const remainingTime = Math.max(0, 5000 - timeElapsed);
+        
+        if (remainingTime > 0) {
+          await new Promise(resolve => setTimeout(resolve, remainingTime));
+        }
+        
+        // Mark loading as complete
+        setLoadingComplete(true);
+      } catch (error) {
+        console.error('Error during introduction:', error);
+        // Still complete loading even if speech fails
+        setIntroductionSpoken(true);
+        setLoadingComplete(true);
+      }
+    };
+    
+    const startTime = Date.now();
+    handleIntroduction();
+    
+    return () => {
+      // Cancel any pending speech when unmounting
+      window.speechSynthesis.cancel();
+    };
+  }, [speakText]);
+
+  // Play transformers sound when loading - only for error cases
+  // Primary sound playing is now handled in the introduction
+  useEffect(() => {
+    if (!isConnected && !soundPlayed.current && error) {
+      playTransformersSound();
+      soundPlayed.current = true;
+    }
+  }, [isConnected, error]);
+
+  // Play game-end sound when interview is complete - only once
+  useEffect(() => {
+    if (isInterviewComplete && soundPlayed.current) {
+      playGameEndSound();
+      soundPlayed.current = false; // Reset for potential new interview
+    }
+  }, [isInterviewComplete]);
+
+  // Use the useChat hook for better message handling
+  const { append, messages: chatMessages } = useChat({
+    api: '/api/openai-gpt',
+    // Skip initialMessages entirely and use our first message approach
+    onFinish: (message) => {
+      // Only speak the complete message when it's fully received
+      if (message.role === 'assistant') {
+        speakText(message.content).catch(console.error);
+
+        // Check if this is the final message (contains the goodbye message)
+        if (message.content.includes('Thank you for your time') &&
+          message.content.includes('have a great day')
+        ) {
+          setIsInterviewComplete(true);
+        }
+      }
+    }
+  });
+
+  // MediaRecorder setup
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
+
+  // Add ref for messages container
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Apply the initial message - only once, after introduction is spoken and after connection is established
+  useEffect(() => {
+    // Only proceed if everything is ready AND the introduction has been spoken
+    if (initialText && !initialMessageSent.current && isConnected && isUIReady && introductionSpoken && loadingComplete) {
       const sendInitialMessage = async () => {
         try {
+          console.log('Sending initial interview message after introduction');
           // First add the message to the UI
           setMessages(prev => [...prev, { role: 'system', content: initialText }]);
           
@@ -200,7 +223,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
       
       sendInitialMessage();
     }
-  }, [initialText, isConnected, isUIReady, speakText]);
+  }, [initialText, isConnected, isUIReady, introductionSpoken, loadingComplete, speakText]);
 
   // Function to send message to OpenAI and speak - memoized to prevent recreation
   const sendMessageToOpenAI = useCallback(async (messageContent: string, role: 'system' | 'user' = 'user') => {
@@ -494,8 +517,7 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
     );
   }
 
-  // Show loading screen until both loading timeout completes AND welcome message is spoken
-  if (!loadingComplete || !introSpoken || !isConnected || !token || !roomName || !wsUrl) {
+  if (!loadingComplete || !isConnected || !token || !roomName || !wsUrl) {
     return (
       <div className="loading-container">
         <div className="loading-message">
@@ -509,8 +531,8 @@ const AudioChat: React.FC<AudioChatProps> = ({ initialText }) => {
             />
           </div>
           <div className="loading-text">
-            <TypeWriter text={welcomeMessage} />
-            <h3>Connecting to interview room{loadingComplete && !introSpoken ? ', please wait...' : '...'}</h3>
+            <TypeWriter text="Hello! I'm your interviewer today. I'll be reviewing your resume and asking you some questions." />
+            <h3>Connecting to interview room...</h3>
             <div className="loading-spinner"></div>
           </div>
         </div>
