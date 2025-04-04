@@ -1,6 +1,37 @@
-# InterviewGPT
+# Interview Pro - AI-Powered Interview Training
 
-This chatbot will help you prepare for your next behavioral interview! Just upload your resume pdf and let Bob The Interview start asking you questions.
+This application provides AI-powered interview training with resume analysis. It utilizes PDF.js for resume extraction and OpenAI GPT for personalized interview questions.
+
+## Application Overview
+
+This chatbot helps you prepare for behavioral interviews by:
+1. Uploading your resume PDF
+2. Extracting relevant information using PDF.js
+3. Generating personalized interview questions with OpenAI
+4. Conducting a simulated interview with voice interaction
+
+## Testing PDF.js Extraction on Vercel
+
+To test PDF.js extraction capabilities in a serverless environment:
+
+1. Navigate to `/test-pdf-extraction` on your deployed application
+2. Upload a PDF resume file
+3. The test will run both worker-free and worker-based extraction methods
+4. Compare the results to see which approach works best
+
+This testing tool helps diagnose PDF.js issues by:
+- Showing detailed diagnostic information about the environment
+- Testing both extraction methods side by side
+- Displaying error messages and extraction results
+- Providing text samples from each extraction method
+
+For best results in Vercel or other serverless environments:
+- The worker-free extraction should succeed
+- If you get 404 errors for PDF.js workers, check the worker-free results
+
+If you need to fix PDF.js worker issues, use the worker-free extraction approach which is optimized for serverless environments.
+
+## PDF.js Implementation Analysis
 
 This project is built using Nextjs. It utilizes the OpenAI GPT4 model for chat completion. The resume pdf is handled by PDF.js which extracts all the text from the document.
 
