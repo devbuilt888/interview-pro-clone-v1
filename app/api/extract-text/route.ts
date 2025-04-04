@@ -219,6 +219,11 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
       disableAutoFetch: true,
       // @ts-ignore
       disableStream: true,
+      // Disable canvas usage which causes issues in serverless
+      // @ts-ignore
+      canvasFactory: null,
+      // @ts-ignore
+      styleElement: null,
       cMapPacked: false,
     });
     
@@ -339,6 +344,11 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
           // disableWorker: true is not a standard option but it works in some PDF.js versions
           ...(typeof (pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions) === 'undefined' ? 
             { disableWorker: true } : {}),
+          // Disable canvas which causes build issues on Vercel
+          // @ts-ignore
+          canvasFactory: null,
+          // @ts-ignore
+          styleElement: null,
           // CMap options - using unpkg instead of self-hosted
           cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
           cMapPacked: true,

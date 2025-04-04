@@ -108,6 +108,11 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
       disableAutoFetch: true,
       // @ts-ignore
       disableStream: true,
+      // Disable canvas usage which causes issues in serverless
+      // @ts-ignore
+      canvasFactory: null,
+      // @ts-ignore
+      styleElement: null,
       cMapPacked: false,
     });
     
