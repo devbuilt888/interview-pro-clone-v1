@@ -71,11 +71,27 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Import PDF.js but don't configure the worker
-    const pdfjs = await import('pdfjs-dist');
+    // Fixed import approach for PDF.js in ESM mode
+    // Import specific functions rather than the whole module
+    const pdfJsModule = await import('pdfjs-dist');
+    
+    // In ESM mode, we need to access the getDocument from the right property
+    // Different versions of PDF.js have different export structures
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Log the structure to help debugging
+    console.log('PDF.js module structure:', Object.keys(pdfJsModule));
+    
+    // Access getDocument from the right place
+    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+    
+    if (typeof getDocument !== 'function') {
+      throw new Error('getDocument function not found in PDF.js. Available properties: ' + 
+        Object.keys(pdfjsLib).join(', '));
+    }
     
     // Create a document loading task with strict non-worker settings
-    const loadingTask = pdfjs.getDocument({
+    const loadingTask = getDocument({
       data: fileData,
       disableFontFace: true,
       useSystemFonts: false,
@@ -153,16 +169,28 @@ async function extractTextWithWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using standard PDF.js extraction with worker...');
     
-    // Dynamic import of PDF.js
-    const pdfjs = await import('pdfjs-dist');
+    // Fixed import approach for PDF.js in ESM mode
+    const pdfJsModule = await import('pdfjs-dist');
     
+    // In ESM mode, we need to access the getDocument from the right property
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Access getDocument from the right place
+    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+    
+    if (typeof getDocument !== 'function') {
+      throw new Error('getDocument function not found in PDF.js');
+    }
+    
+    // Attempt to set the worker source - this might need the GlobalWorkerOptions from the right place
     // Use unpkg CDN for the worker
     const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
     
     // Safely set the worker source with error handling
     try {
-      if (pdfjs.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+      const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
+      if (GlobalWorkerOptions) {
+        GlobalWorkerOptions.workerSrc = PDFJS_CDN;
         console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
       } else {
         console.warn('GlobalWorkerOptions not available, trying alternative approach');
@@ -173,14 +201,15 @@ async function extractTextWithWorker(fileData: Uint8Array): Promise<string> {
     }
     
     // Create a document loading task with worker options
-    const loadingTask = pdfjs.getDocument({
+    const loadingTask = getDocument({
       data: fileData,
       disableFontFace: true,
       useSystemFonts: true,
       useWorkerFetch: false, // Important for serverless
       isEvalSupported: false, // Important for serverless
       // Workaround for serverless - use if GlobalWorkerOptions unavailable
-      ...(typeof pdfjs.GlobalWorkerOptions === 'undefined' ? { disableWorker: true } : {}),
+      ...(typeof (pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions) === 'undefined' ? 
+        { disableWorker: true } : {}),
       // CMap options
       cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
       cMapPacked: true,
@@ -264,8 +293,18 @@ async function extractTextWithWorker(fileData: Uint8Array): Promise<string> {
 // Helper function to get PDF.js version information
 async function getPdfJsVersion(): Promise<string> {
   try {
-    const pdfjs = await import('pdfjs-dist');
-    return pdfjs.version || 'Version not available';
+    const pdfJsModule = await import('pdfjs-dist');
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Try multiple ways to get the version
+    const version = pdfjsLib.version || pdfJsModule.version;
+    
+    if (version) {
+      return version;
+    }
+    
+    // If version isn't directly available, log the structure to help debug
+    return `Version not directly available. Available properties: ${Object.keys(pdfJsModule).join(', ')}`;
   } catch (e) {
     return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
   }

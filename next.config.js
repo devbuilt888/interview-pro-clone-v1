@@ -10,8 +10,9 @@ const nextConfig = {
   },
   // Add webpack configuration to handle PDF.js correctly
   webpack: (config, { isServer }) => {
+    // Improved handling for PDF.js ESM modules
     // Use proper handling for PDF.js
-    config.resolve.alias.pdfjs = 'pdfjs-dist/build/pdf.min.mjs';
+    config.resolve.alias.pdfjs = 'pdfjs-dist/build/pdf.mjs';
     
     // Resolve critical dependency issue
     config.module.exprContextCritical = false;
@@ -31,13 +32,29 @@ const nextConfig = {
       
       // Add specific handling for PDF.js worker in serverless
       config.externals.push({
-        'pdfjs-dist/build/pdf.worker.min.mjs': 'pdfjs-dist/build/pdf.worker.min.mjs',
+        'pdfjs-dist/build/pdf.worker.mjs': 'pdfjs-dist/build/pdf.worker.mjs',
       });
     } else {
       // On client side, ensure the worker is properly included
-      config.resolve.alias['pdfjs-dist/build/pdf.worker.min.mjs'] = 
-        require.resolve('pdfjs-dist/build/pdf.worker.min.mjs');
+      config.resolve.alias['pdfjs-dist/build/pdf.worker.mjs'] = 
+        require.resolve('pdfjs-dist/build/pdf.worker.mjs');
     }
+    
+    // Add special rule for PDF.js ESM modules
+    config.module.rules.push({
+      test: /pdf\.mjs$/,
+      type: 'javascript/auto',
+      resolve: {
+        fullySpecified: false
+      }
+    });
+    
+    // Add support for ESM modules
+    config.resolve.extensionAlias = {
+      '.js': ['.js', '.mjs', '.cjs'],
+      '.mjs': ['.mjs', '.js', '.cjs'],
+      '.cjs': ['.cjs', '.js', '.mjs']
+    };
     
     return config;
   },
@@ -67,7 +84,7 @@ const nextConfig = {
       },
       {
         // Cache CDN resources
-        source: '/(.*).worker.min.js',
+        source: '/(.*).worker.(min.js|mjs)$',
         headers: [
           {
             key: 'Cache-Control',

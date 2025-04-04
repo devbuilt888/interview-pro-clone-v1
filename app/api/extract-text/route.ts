@@ -90,14 +90,20 @@ async function preloadPdfJsWorker() {
   
   try {
     console.log('Preloading PDF.js worker...');
-    const pdfjs = await import('pdfjs-dist');
+    
+    // Fixed import approach for PDF.js in ESM mode
+    const pdfJsModule = await import('pdfjs-dist');
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Access worker setup from the right place
+    const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
     
     // Use unpkg CDN instead of cdnjs as it has the correct version
     const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
     
     // Check if GlobalWorkerOptions exists before trying to set it
-    if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+    if (GlobalWorkerOptions) {
+      GlobalWorkerOptions.workerSrc = PDFJS_CDN;
       console.log(`Set worker source to: ${PDFJS_CDN}`);
     } else {
       console.warn('GlobalWorkerOptions not available, using workerPort approach');
@@ -140,9 +146,16 @@ async function preloadPdfJsWorker() {
       0x0a, 0x34, 0x30, 0x36, 0x0a, 0x25, 0x25, 0x45, 0x4f, 0x46
     ]);
     
+    // Access getDocument from the right place
+    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+    
+    if (typeof getDocument !== 'function') {
+      throw new Error('getDocument function not found in PDF.js');
+    }
+    
     // Load a tiny PDF just to initialize the worker
     try {
-      const task = pdfjs.getDocument({
+      const task = getDocument({
         data: minimalPdf,
         useWorkerFetch: false,
         isEvalSupported: false,
@@ -177,11 +190,19 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Import PDF.js but don't configure the worker
-    const pdfjs = await import('pdfjs-dist');
+    // Fixed import approach for PDF.js in ESM mode
+    const pdfJsModule = await import('pdfjs-dist');
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Access getDocument from the right place
+    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+    
+    if (typeof getDocument !== 'function') {
+      throw new Error('getDocument function not found in PDF.js');
+    }
     
     // Create a document loading task with strict non-worker settings
-    const loadingTask = pdfjs.getDocument({
+    const loadingTask = getDocument({
       data: fileData,
       disableFontFace: true,
       useSystemFonts: false,
@@ -279,16 +300,25 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
     // If the worker-free approach failed or returned insufficient text, try the standard approach
     if (!fullText || fullText.trim().length < 200) {
       try {
-    // Dynamic import of PDF.js to avoid build-time issues
-    const pdfjs = await import('pdfjs-dist');
-    
+        // Fixed import approach for PDF.js in ESM mode
+        const pdfJsModule = await import('pdfjs-dist');
+        const pdfjsLib = pdfJsModule.default || pdfJsModule;
+        
+        // Access getDocument from the right place
+        const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+        
+        if (typeof getDocument !== 'function') {
+          throw new Error('getDocument function not found in PDF.js');
+        }
+        
         // Use unpkg CDN instead of cdnjs as it has the correct version
         const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
         
         // Safely set the worker source with error handling
         try {
-          if (pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+          const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
+          if (GlobalWorkerOptions) {
+            GlobalWorkerOptions.workerSrc = PDFJS_CDN;
             console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
           } else {
             console.warn('GlobalWorkerOptions not available, trying alternative approach');
@@ -299,41 +329,42 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
         }
         
         // Create a document loading task with improved options and fallbacks
-    const loadingTask = pdfjs.getDocument({
-      data: fileData,
-      disableFontFace: true,
-      useSystemFonts: true,
-      useWorkerFetch: false, // Important for serverless
-      isEvalSupported: false, // Important for serverless
+        const loadingTask = getDocument({
+          data: fileData,
+          disableFontFace: true,
+          useSystemFonts: true,
+          useWorkerFetch: false, // Important for serverless
+          isEvalSupported: false, // Important for serverless
           // Workaround for serverless - we'll handle this differently
           // disableWorker: true is not a standard option but it works in some PDF.js versions
-          ...(typeof pdfjs.GlobalWorkerOptions === 'undefined' ? { disableWorker: true } : {}),
+          ...(typeof (pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions) === 'undefined' ? 
+            { disableWorker: true } : {}),
           // CMap options - using unpkg instead of self-hosted
           cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
           cMapPacked: true,
           // Standard font data
           standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/',
-    });
-    
-    // Using a timeout to prevent hanging in case of worker issues
-    const pdfDocumentPromise = Promise.race([
-      loadingTask.promise,
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
-      )
-    ]);
-    
-    // Load the document
-    const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
-    console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
-    
+        });
+        
+        // Using a timeout to prevent hanging in case of worker issues
+        const pdfDocumentPromise = Promise.race([
+          loadingTask.promise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
+          )
+        ]);
+        
+        // Load the document
+        const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
+        console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
+        
         // Extract text from each page with improved handling
         let standardText = '';
-    const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
-    
-    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-      try {
-        const page = await pdfDocument.getPage(pageNum);
+        const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
+        
+        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+          try {
+            const page = await pdfDocument.getPage(pageNum);
             
             // Try to get annotations (like form fields) that might contain text
             let annotationText = '';
@@ -368,17 +399,17 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
             // Combine annotation text and page text
             standardText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
         
-        page.cleanup();
-      } catch (pageError) {
-        console.warn(`Error extracting text from page ${pageNum}:`, pageError);
-      }
-    }
-    
-    // Clean up the PDF document
-    try {
-      pdfDocument.destroy();
-    } catch (e) {
-      console.warn('Error destroying PDF document:', e);
+            page.cleanup();
+          } catch (pageError) {
+            console.warn(`Error extracting text from page ${pageNum}:`, pageError);
+          }
+        }
+        
+        // Clean up the PDF document
+        try {
+          pdfDocument.destroy();
+        } catch (e) {
+          console.warn('Error destroying PDF document:', e);
         }
         
         // If we got useful text from the standard approach, use it
@@ -881,8 +912,18 @@ export async function POST(req: NextRequest) {
 // Helper function to get PDF.js version information
 async function getPdfJsVersion(): Promise<string> {
   try {
-    const pdfjs = await import('pdfjs-dist');
-    return pdfjs.version || 'Version not available';
+    const pdfJsModule = await import('pdfjs-dist');
+    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    
+    // Try multiple ways to get the version
+    const version = pdfjsLib.version || pdfJsModule.version;
+    
+    if (version) {
+      return version;
+    }
+    
+    // If version isn't directly available, log the module structure
+    return `Version not directly available. Available properties: ${Object.keys(pdfJsModule).join(', ')}`;
   } catch (e) {
     return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
   }

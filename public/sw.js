@@ -8,6 +8,9 @@ const PDF_JS_RESOURCES = [
   // PDF.js worker files from unpkg (primary)
   'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js',
   'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.min.js',
+  // ESM versions for modern bundlers
+  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.mjs',
+  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.mjs',
   
   // Fallback CDN files (cdnjs)
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js',
@@ -22,6 +25,8 @@ const PDF_JS_RESOURCES = [
 const PDF_JS_URL_PATTERNS = [
   /pdf\.worker\.min\.js$/,
   /pdf\.min\.js$/,
+  /pdf\.worker\.mjs$/,
+  /pdf\.mjs$/,
   /\/cmaps\//,
   /\/standard_fonts\//,
   /pdfjs-dist/
