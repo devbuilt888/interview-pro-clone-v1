@@ -75,7 +75,7 @@ export interface ExtractionResult {
   /**
    * Method used for extraction
    */
-  method: 'worker-free' | 'standard' | 'fallback' | 'standard-pdfjs' | 'partial' | 'failed';
+  method: 'worker-free' | 'standard' | 'fallback';
   
   /**
    * Any warnings that occurred during extraction

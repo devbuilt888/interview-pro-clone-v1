@@ -109,45 +109,11 @@ export default function TestPdfExtraction() {
               <div className="bg-gray-50 p-3 rounded">
                 <p>Node Environment: {result.diagnostics.environment}</p>
                 <p>PDF.js Version: {result.diagnostics.pdfjs_version}</p>
-                <p>Serverless: {result.diagnostics.is_serverless ? 'Yes' : 'No'}</p>
-                {result.diagnostics.runtime_info && (
-                  <>
-                    <p>Platform: {result.diagnostics.runtime_info.platform}</p>
-                    <p>Node Version: {result.diagnostics.runtime_info.node_version}</p>
-                    <p>Is Vercel: {result.diagnostics.runtime_info.is_vercel ? 'Yes' : 'No'}</p>
-                  </>
-                )}
               </div>
             </div>
             
             <div>
-              <h3 className="text-md font-medium mb-2 flex items-center">
-                <span>Worker-Based Extraction (Standard PDF.js)</span>
-                {result.method_used === 'standard-pdfjs' && (
-                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Method Used</span>
-                )}
-              </h3>
-              <div className={`p-3 rounded ${result.diagnostics.worker_based_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
-                <p>Status: {result.diagnostics.worker_based_extraction.success ? 'Success' : 'Failed'}</p>
-                <p>Characters Extracted: {result.diagnostics.worker_based_extraction.text_length}</p>
-                {result.diagnostics.worker_based_extraction.success && (
-                  <div className="mt-2">
-                    <p className="font-medium">Text Sample:</p>
-                    <p className="text-sm mt-1 bg-white p-2 rounded border whitespace-pre-wrap">
-                      {result.diagnostics.worker_based_extraction.text_sample}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-md font-medium mb-2 flex items-center">
-                <span>Worker-Free Extraction (Serverless Optimized)</span>
-                {result.method_used === 'worker-free' && (
-                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Method Used</span>
-                )}
-              </h3>
+              <h3 className="text-md font-medium mb-2">Worker-Free Extraction (Serverless Optimized)</h3>
               <div className={`p-3 rounded ${result.diagnostics.worker_free_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
                 <p>Status: {result.diagnostics.worker_free_extraction.success ? 'Success' : 'Failed'}</p>
                 <p>Characters Extracted: {result.diagnostics.worker_free_extraction.text_length}</p>
@@ -163,37 +129,18 @@ export default function TestPdfExtraction() {
             </div>
             
             <div>
-              <h3 className="text-md font-medium mb-2 flex items-center">
-                <span>Fallback Extraction (Regex-Based)</span>
-                {result.method_used === 'fallback' && (
-                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Method Used</span>
-                )}
-              </h3>
-              <div className={`p-3 rounded ${result.diagnostics.fallback_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
-                <p>Status: {result.diagnostics.fallback_extraction.success ? 'Success' : 'Failed'}</p>
-                <p>Characters Extracted: {result.diagnostics.fallback_extraction.text_length}</p>
-                {result.diagnostics.fallback_extraction.success && (
+              <h3 className="text-md font-medium mb-2">Worker-Based Extraction (Standard Method)</h3>
+              <div className={`p-3 rounded ${result.diagnostics.worker_based_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
+                <p>Status: {result.diagnostics.worker_based_extraction.success ? 'Success' : 'Failed'}</p>
+                <p>Characters Extracted: {result.diagnostics.worker_based_extraction.text_length}</p>
+                {result.diagnostics.worker_based_extraction.success && (
                   <div className="mt-2">
                     <p className="font-medium">Text Sample:</p>
                     <p className="text-sm mt-1 bg-white p-2 rounded border whitespace-pre-wrap">
-                      {result.diagnostics.fallback_extraction.text_sample}
+                      {result.diagnostics.worker_based_extraction.text_sample}
                     </p>
                   </div>
                 )}
-              </div>
-            </div>
-            
-            <div className="border-t pt-6">
-              <h3 className="text-md font-medium mb-2">Final Result</h3>
-              <div className="bg-blue-50 p-3 rounded">
-                <p>Method Used: <span className="font-semibold">{result.diagnostics.final_result.method}</span></p>
-                <p>Characters Extracted: {result.diagnostics.final_result.text_length}</p>
-                <div className="mt-2">
-                  <p className="font-medium">Text Sample:</p>
-                  <p className="text-sm mt-1 bg-white p-2 rounded border whitespace-pre-wrap">
-                    {result.diagnostics.final_result.text_sample}
-                  </p>
-                </div>
               </div>
             </div>
             
