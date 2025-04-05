@@ -304,6 +304,13 @@ export async function POST(req: NextRequest) {
       method_used: extractionResult.method,
       diagnostics: {
         environment: process.env.NODE_ENV,
+        is_serverless: typeof window === 'undefined',
+        runtime_info: {
+          node_version: process.version,
+          platform: process.platform,
+          is_vercel: !!process.env.VERCEL,
+          memory_limit: process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE || 'unknown'
+        },
         pdfjs_version: pdfJsVersion,
         file_info: {
           name: file.name,

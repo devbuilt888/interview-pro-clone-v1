@@ -109,6 +109,14 @@ export default function TestPdfExtraction() {
               <div className="bg-gray-50 p-3 rounded">
                 <p>Node Environment: {result.diagnostics.environment}</p>
                 <p>PDF.js Version: {result.diagnostics.pdfjs_version}</p>
+                <p>Serverless: {result.diagnostics.is_serverless ? 'Yes' : 'No'}</p>
+                {result.diagnostics.runtime_info && (
+                  <>
+                    <p>Platform: {result.diagnostics.runtime_info.platform}</p>
+                    <p>Node Version: {result.diagnostics.runtime_info.node_version}</p>
+                    <p>Is Vercel: {result.diagnostics.runtime_info.is_vercel ? 'Yes' : 'No'}</p>
+                  </>
+                )}
               </div>
             </div>
             
