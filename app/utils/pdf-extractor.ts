@@ -231,114 +231,238 @@ function isServerless(): boolean {
 }
 
 /**
- * Fallback text extraction using pure text processing
- * Used when PDF.js approaches fail
+ * Improved fallback text extraction for PDFs
+ * Emulates key parts of pdfjs while being serverless compatible
  */
 export async function fallbackExtraction(fileData: Uint8Array): Promise<string> {
   try {
-    console.log('Using fallback text-based extraction...');
+    console.log('Using enhanced fallback extraction for PDF...');
     
     // Convert buffer to string for processing
     const text = new TextDecoder().decode(fileData);
+    console.log(`Decoded ${text.length} characters for processing`);
     
-    console.log(`Decoded ${text.length} characters for fallback extraction`);
+    // Combined results array to store all extracted text fragments
+    const textFragments: string[] = [];
     
-    // Extract text content using multiple regex patterns for more robust extraction
-    let extractedText = '';
+    // PHASE 1: Extract text from PDF text objects (most reliable for readable text)
+    console.log('Phase 1: Extracting text from PDF text objects...');
     
-    // Try each approach
-    const approaches = [
-      // 1. Extract text between BT (Begin Text) and ET (End Text) markers
-      () => {
-        console.log('Trying BT/ET extraction...');
-        const textMatches = text.match(/BT[\s\S]*?ET/g);
-        if (!textMatches) return '';
-        
-        return textMatches
-          .map(block => {
-            // Extract text from Tj and TJ operators
-            const textContent = block
-              .replace(/BT|ET/g, '') // Remove BT/ET markers
-              .replace(/Tj|TJ/g, '') // Remove Tj/TJ operators
-              .replace(/[\(\)]/g, '') // Remove parentheses
-              .trim();
-            return textContent;
-          })
-          .join(' ')
-          .replace(/\s+/g, ' ') // Normalize whitespace
+    // Find text objects with Tj and TJ operators (contain actual visible text)
+    const textRe = /\[(.*?)(?:Tj|TJ)\]/g;
+    let textMatch;
+    while ((textMatch = textRe.exec(text)) !== null) {
+      if (textMatch[1]) {
+        // Clean up the text content, removing PDF escape sequences
+        let fragment = textMatch[1]
+          .replace(/\\(\d{3}|n|r|t|b|f|\\|\(|\))/g, ' ') // Handle escape sequences
+          .replace(/\(/g, '')  // Remove opening parentheses
+          .replace(/\)/g, '')  // Remove closing parentheses
+          .replace(/\\$/g, '') // Remove trailing backslashes
           .trim();
-      },
-      
-      // 2. Extract from parentheses directly (common in PDF text)
-      () => {
-        console.log('Trying parentheses extraction...');
-        const fallbackMatches = text.match(/\(([^)]+)\)/g);
-        if (!fallbackMatches) return '';
         
-        return fallbackMatches
-          .map(match => match.slice(1, -1))
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-      },
-      
-      // 3. Try to find plain text words (common in some PDFs)
-      () => {
-        console.log('Trying word pattern extraction...');
-        // Extract blocks that look like words (3+ alpha characters)
-        const wordMatches = text.match(/[a-zA-Z]{3,}[a-zA-Z\s\.\,\:\;\-\']{2,}/g);
-        if (!wordMatches) return '';
+        // PDF sometimes uses hex encoding for strings
+        if (fragment.match(/^<[0-9A-Fa-f\s]+>$/)) {
+          // Convert hex to ASCII
+          fragment = fragment
+            .replace(/[<>\s]/g, '')
+            .match(/.{2}/g)
+            ?.map(hex => String.fromCharCode(parseInt(hex, 16)))
+            .join('') || '';
+        }
         
-        return wordMatches
-          .join(' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-      },
-      
-      // 4. Try to extract text directly from stream objects
-      () => {
-        console.log('Trying stream extraction...');
-        const streamMatches = text.match(/stream([\s\S]*?)endstream/g);
-        if (!streamMatches) return '';
-        
-        return streamMatches
-          .map(stream => {
-            return stream
-              .replace(/stream|endstream/g, '')
-              .replace(/[^a-zA-Z0-9\s\.\,\:\;\-\']/g, ' ')
-              .replace(/\s+/g, ' ');
-          })
-          .join(' ')
-          .trim();
-      }
-    ];
-    
-    // Try each approach until we get enough text
-    for (const approach of approaches) {
-      const result = approach();
-      
-      if (result && result.length > 100) {
-        extractedText = result;
-        break;
-      } else if (result) {
-        // If we got some text but not enough, append it
-        extractedText += ' ' + result;
+        if (fragment.length > 0) {
+          textFragments.push(fragment);
+        }
       }
     }
     
-    console.log(`Fallback extraction got ${extractedText.length} characters`);
+    // PHASE 2: Extract text from parentheses (common in PDF text objects)
+    console.log('Phase 2: Extracting text from parentheses...');
+    const parenthesesRe = /\(([^)\\]*(?:\\.[^)\\]*)*)\)/g;
+    let parenthesesMatch;
+    while ((parenthesesMatch = parenthesesRe.exec(text)) !== null) {
+      if (parenthesesMatch[1]) {
+        // Clean up the content, removing PDF escape sequences
+        let fragment = parenthesesMatch[1]
+          .replace(/\\(\d{3}|n|r|t|b|f|\\|\(|\))/g, match => {
+            // Convert octal escape sequences to characters
+            if (/^\d{3}$/.test(match.substring(1))) {
+              return String.fromCharCode(parseInt(match.substring(1), 8));
+            }
+            // Handle other escape sequences
+            const escapeMap: {[key: string]: string} = {
+              'n': '\n', 'r': '\r', 't': '\t', 'b': '\b', 'f': '\f', '\\': '\\', '(': '(', ')': ')'
+            };
+            return escapeMap[match.substring(1)] || ' ';
+          })
+          .trim();
+        
+        if (fragment.length > 0 && !/^[0-9.]+$/.test(fragment)) { // Skip numeric-only fragments
+          textFragments.push(fragment);
+        }
+      }
+    }
     
-    // Try to clean up the text
+    // PHASE 3: Try to find structured content blocks (useful for resumes)
+    console.log('Phase 3: Extracting structured content blocks...');
+    
+    // Look for content blocks (resume sections often have patterns)
+    const contentBlockRe = /\/T[^(]*\(([^)]+)\)[^(]*\(([^)]+)\)/g;
+    let contentMatch;
+    while ((contentMatch = contentBlockRe.exec(text)) !== null) {
+      if (contentMatch[1] && contentMatch[2]) {
+        // These often represent label + content pairs in forms/resumes
+        let label = contentMatch[1].trim();
+        let content = contentMatch[2].trim();
+        
+        if (label.length > 0 && content.length > 0) {
+          textFragments.push(`${label}: ${content}`);
+        }
+      }
+    }
+    
+    // PHASE 4: Extract font-encoded text (handles PDF font mappings better)
+    console.log('Phase 4: Extracting font-encoded text...');
+    
+    // Try to parse font encodings using more sophisticated regex
+    const fontTextRe = /\/F\d+\s+[0-9.]+\s+Tf\s*\n?\r?([^]*?)(?:ET|BT)/g;
+    let fontMatch;
+    while ((fontMatch = fontTextRe.exec(text)) !== null) {
+      if (fontMatch[1]) {
+        // Extract text content from font blocks, removing operators
+        const fontContent = fontMatch[1]
+          .replace(/\s*(?:T[cdjmrs*]|Tm|Td|Tf|ET|BT)\s*/g, ' ')
+          .replace(/[\[\]']/g, '')
+          .trim();
+        
+        if (fontContent.length > 0 && !/^[\d\s.]+$/.test(fontContent)) {
+          textFragments.push(fontContent);
+        }
+      }
+    }
+    
+    // PHASE 5: Look for resume-specific patterns
+    console.log('Phase 5: Detecting resume-specific content...');
+    
+    // Resume section headers (common in most resumes)
+    const resumeSectionRe = /\b(Education|Experience|Skills|Work|Employment|Qualifications|Summary|Profile|Objective|Contact|References|Projects|Certifications|Languages|Interests|Activities)\b/gi;
+    let sectionMatch;
+    const sectionMatches: string[] = [];
+    while ((sectionMatch = resumeSectionRe.exec(text)) !== null) {
+      sectionMatches.push(sectionMatch[1]);
+    }
+    
+    if (sectionMatches.length > 0) {
+      console.log(`Detected resume sections: ${sectionMatches.join(', ')}`);
+      textFragments.push(`Detected Resume Sections: ${sectionMatches.join(', ')}`);
+    }
+    
+    // Combined approaches output
+    let extractedText = '';
+    
+    if (textFragments.length > 0) {
+      // Join text fragments intelligently
+      extractedText = textFragments
+        .filter(Boolean)
+        .filter(fragment => fragment.length > 1)  // Remove single-character fragments
+        .join('\n')
+        .replace(/\s+/g, ' ')    // Normalize whitespace
+        .replace(/(\S)\n(\S)/g, '$1 $2') // Join broken lines
+        .replace(/\n{3,}/g, '\n\n'); // Remove excessive newlines
+    } else {
+      // Fallback if all else fails - try the original approaches
+      console.log('Using original fallback extraction approaches...');
+      
+      // Original approach 1: Extract text between BT and ET markers
+      const btEtMatches = text.match(/BT[\s\S]*?ET/g) || [];
+      const btEtText = btEtMatches
+        .map(block => block
+          .replace(/BT|ET/g, '')
+          .replace(/Tj|TJ/g, '')
+          .replace(/[\(\)]/g, '')
+          .trim())
+        .join(' ');
+      
+      // Original approach 2: Extract from parentheses
+      const parenthesesMatches = text.match(/\(([^)]+)\)/g) || [];
+      const parenthesesText = parenthesesMatches
+        .map(match => match.slice(1, -1))
+        .join(' ');
+      
+      // Original approach 3: Find words
+      const wordMatches = text.match(/[a-zA-Z]{3,}[a-zA-Z\s\.\,\:\;\-\']{2,}/g) || [];
+      const wordText = wordMatches.join(' ');
+      
+      // Combine all approaches
+      extractedText = [btEtText, parenthesesText, wordText]
+        .filter(t => t.length > 0)
+        .join('\n')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    
+    console.log(`Enhanced extraction got ${extractedText.length} characters`);
+    
+    // Clean up the text
     extractedText = extractedText
       .replace(/[^\x20-\x7E\r\n]/g, ' ') // Remove non-printable chars
       .replace(/\s+/g, ' ')              // Normalize whitespace
+      .replace(/(\D)(\d{3})(\d{3})(\d{4})/g, '$1$2-$3-$4') // Format phone numbers
+      .replace(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi, '\nEmail: $1\n') // Highlight emails
       .trim();
+    
+    // Detect and format common resume patterns
+    extractedText = formatResumeText(extractedText);
     
     return extractedText;
   } catch (error) {
-    console.error('Error in fallback extraction:', error);
+    console.error('Error in enhanced fallback extraction:', error);
     return "Failed to extract text from PDF. The file may be corrupt or password protected.";
   }
+}
+
+/**
+ * Format extracted text to better resemble resume structure
+ */
+function formatResumeText(text: string): string {
+  // Look for common resume patterns and format accordingly
+  
+  // Format section headers
+  const sectionHeaders = [
+    'Education', 'Experience', 'Work Experience', 'Skills', 
+    'Professional Experience', 'Employment', 'Qualifications',
+    'Summary', 'Profile', 'Objective', 'Contact', 'References', 
+    'Projects', 'Certifications', 'Languages', 'Interests'
+  ];
+  
+  let formatted = text;
+  
+  // Format section headers
+  sectionHeaders.forEach(header => {
+    const headerRegex = new RegExp(`\\b${header}\\b`, 'gi');
+    formatted = formatted.replace(headerRegex, `\n\n${header.toUpperCase()}:`);
+  });
+  
+  // Format dates (common in resumes)
+  formatted = formatted.replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\s*(-|–|to)\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b/gi, '\n$&\n');
+  formatted = formatted.replace(/\b\d{4}\s*(-|–|to)\s*\d{4}\b/g, '\n$&\n');
+  formatted = formatted.replace(/\b\d{4}\s*(-|–|to)\s*(Present|Current)\b/gi, '\n$&\n');
+  
+  // Format job titles/education degrees (often in title case)
+  formatted = formatted.replace(/\b([A-Z][a-z]+\s+)+(?:Engineer|Developer|Manager|Director|Specialist|Analyst|Consultant|Coordinator|Designer|Architect)\b/g, '\n$&\n');
+  formatted = formatted.replace(/\b(?:Bachelor|Master|PhD|Doctor|Associate)[\s\w]+(?:Science|Arts|Engineering|Business|Administration|Technology)\b/g, '\n$&\n');
+  
+  // Format companies/schools (often appear with locations)
+  formatted = formatted.replace(/\n([A-Z][a-zA-Z\s&,]+)\s*,\s*([A-Za-z\s]+,\s*[A-Z]{2})/g, '\n$1 - $2\n');
+  
+  // Format bullet points (common in resume descriptions)
+  formatted = formatted.replace(/([.•·])\s*([A-Z])/g, '$1\n• $2');
+  
+  // Clean up potential duplicate newlines
+  formatted = formatted.replace(/\n{3,}/g, '\n\n');
+  
+  return formatted;
 }
 
 /**
