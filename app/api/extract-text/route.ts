@@ -18,6 +18,7 @@ import { generateInitialGreeting } from '../../utils/openai-service';
 export async function POST(req: NextRequest) {
   try {
     console.log('PDF extraction request received');
+    console.log(`Environment: ${process.env.NODE_ENV}`);
     
     // Parse form data from request
     const formData = await req.formData();
@@ -46,7 +47,9 @@ export async function POST(req: NextRequest) {
     // Extract text from PDF
     console.log('Extracting text from PDF...');
     const extractionResult = await extractTextFromPDF(fileData);
+    console.log(`Extraction method used: ${extractionResult.method}`);
     console.log(`Extracted text length: ${extractionResult.text.length} characters`);
+    console.log(`Text sample: ${extractionResult.text.substring(0, 100)}...`);
     
     // Log any warnings from extraction process
     if (extractionResult.warnings && extractionResult.warnings.length > 0) {
@@ -58,19 +61,33 @@ export async function POST(req: NextRequest) {
     
     // Log parsed resume sections
     console.log(`Extracted resume data sections: ${Object.keys(resumeData).filter(k => k !== 'rawText').join(', ')}`);
+    
     if (resumeData.name) {
       console.log(`Extracted name: ${resumeData.name}`);
+    }
+    
+    if (resumeData.skills.length > 0) {
+      console.log(`Extracted skills: ${resumeData.skills.join(', ')}`);
+    }
+    
+    if (resumeData.summary) {
+      console.log(`Summary found with ${resumeData.summary.length} characters`);
+    } else {
+      console.log('No summary extracted from text');
     }
 
     // Generate initial message using OpenAI
     console.log('Sending extracted text to OpenAI');
     const initialMessage = await generateInitialGreeting(resumeData);
     console.log('Received response from OpenAI');
+    console.log(`Initial message sample: ${initialMessage.substring(0, 100)}...`);
 
     // Return the response
     return new Response(JSON.stringify({ 
       status: 'ok',
-      text: initialMessage 
+      text: initialMessage,
+      method: extractionResult.method,
+      textLength: extractionResult.text.length
     }), {
       status: 200,
       headers: {

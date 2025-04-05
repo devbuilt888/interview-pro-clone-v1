@@ -22,6 +22,40 @@ export function parseResumeText(text: string): ResumeData {
     rawText: text
   };
   
+  // If the text appears to be garbled/scrambled (common with fallback extraction)
+  // Try to extract meaningful information using pattern matching
+  if (text.match(/[^a-zA-Z0-9\s.,;:'\-\(\)@\/]/g)?.length || 0 > text.length * 0.1) {
+    console.log('Text appears to be scrambled. Applying special processing for fallback extraction data.');
+    
+    // Try to build a summary from text that appears meaningful
+    const paragraphs = text
+      .split(/[\n\r]+/)
+      .map(line => line.trim())
+      .filter(line => line.length > 20 && line.length < 500); 
+      
+    if (paragraphs.length > 0) {
+      // Use the first few meaningful paragraphs as a summary
+      resumeData.summary = paragraphs.slice(0, 3).join('\n\n');
+    }
+    
+    // Extract any apparent skills (words/phrases that may represent skills)
+    const skillsPattern = /\b(?:javascript|python|react|node\.?js|typescript|java|c\+\+|c#|sql|html|css|aws|azure|cloud|management|leadership|communication|design|marketing|sales|machine learning|data|experience|excel|word|powerpoint)\b/gi;
+    
+    const skillMatches = text.match(skillsPattern);
+    if (skillMatches) {
+      // Deduplicate skills and format them
+      const uniqueSkills = [...new Set(skillMatches.map(s => s.toLowerCase()))];
+      resumeData.skills = uniqueSkills.map(skill => 
+        skill.charAt(0).toUpperCase() + skill.slice(1)
+      );
+    }
+    
+    // Return the data with raw text as the primary source of information
+    return resumeData;
+  }
+  
+  // Original processing for clean text - rest of the function remains the same
+  
   // Split text into lines for processing
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   

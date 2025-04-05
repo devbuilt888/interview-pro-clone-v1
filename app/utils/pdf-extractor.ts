@@ -72,21 +72,40 @@ export async function preloadPdfJsWorker(): Promise<void> {
     // Import PDF.js
     const pdfjs = await loadPdfJs();
     
-    // Configure worker
+    // In production (serverless), configure PDF.js to use worker-free mode
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Configuring PDF.js for worker-free operation in production');
+      
+      // If GlobalWorkerOptions exists, explicitly set it to empty
+      if (pdfjs.GlobalWorkerOptions) {
+        // Setting to empty string forces worker-free operation
+        pdfjs.GlobalWorkerOptions.workerSrc = '';
+        console.log('Set GlobalWorkerOptions.workerSrc to empty string to force worker-free mode');
+      }
+      
+      // Mark as loaded so we don't try again
+      pdfWorkerLoaded = true;
+      return;
+    }
+    
+    // For development environment only, try to use worker
+    console.log('Development environment - configuring PDF.js worker');
     if (pdfjs.GlobalWorkerOptions) {
-      // Use CDN for the worker - updated to correct version
       const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
       pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
-      console.log(`Set worker source to: ${PDFJS_CDN}`);
+      console.log(`Set worker source to: ${PDFJS_CDN} (development only)`);
       
       // Mark as loaded
       pdfWorkerLoaded = true;
-      console.log('PDF.js worker source configured');
+      console.log('PDF.js worker source configured for development');
     } else {
-      console.warn('GlobalWorkerOptions not available, worker functionality may be limited');
+      console.warn('GlobalWorkerOptions not available, forcing worker-free operation');
+      pdfWorkerLoaded = true; // Mark as loaded anyway
     }
   } catch (e) {
     console.error('Error preloading PDF.js worker:', e);
+    // Mark as loaded to avoid repeated attempts
+    pdfWorkerLoaded = true;
   }
 }
 
@@ -109,36 +128,37 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
       throw new Error('getDocument function not found in PDF.js');
     }
     
-    // Create a document loading task with strict non-worker settings
+    // Create a document loading task with strict serverless-compatible settings
     const loadingTask = getDocument({
       data: fileData,
+      // Disable features that might rely on workers or browser APIs
       disableFontFace: true,
       useSystemFonts: false,
       useWorkerFetch: false,
       isEvalSupported: false,
-      // If available in this version, explicitly disable the worker
-      // @ts-ignore - intentionally using non-standard option
-      disableWorker: true,
-      // Disable advanced features that might require a worker
-      // @ts-ignore - intentionally using non-standard options
-      disableRangeRequests: true,
-      // @ts-ignore
       disableAutoFetch: true,
-      // @ts-ignore
       disableStream: true,
-      // Disable canvas usage which causes issues in serverless
+      disableRange: true,
+      // If available in this version, explicitly disable the worker
+      // @ts-ignore - intentionally using non-standard options
+      disableWorker: true,
+      // @ts-ignore
+      disableRangeRequests: true,
+      // Need to explicitly disable canvas-related features that won't work in serverless
       // @ts-ignore
       canvasFactory: null,
       // @ts-ignore
       styleElement: null,
       cMapPacked: false,
+      // Keep Vercel request timeout in mind
+      rangeChunkSize: 65536,
     });
     
-    // Using a shorter timeout for serverless
+    // Using a timeout appropriate for serverless environments
     const pdfDocumentPromise = Promise.race([
       loadingTask.promise,
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF loading timed out')), 15000)
+        setTimeout(() => reject(new Error('PDF loading timed out (serverless timeout)')), 10000)
       )
     ]);
     
@@ -148,7 +168,7 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
     
     // Extract text with a minimalist approach
     let fullText = '';
-    const maxPages = Math.min(pdfDocument.numPages, 5); // Limit to 5 pages for serverless
+    const maxPages = Math.min(pdfDocument.numPages, 10); // Limit pages for serverless but allow more
     
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       try {
@@ -157,17 +177,19 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
         // Get text content with minimal options
         const textContent = await page.getTextContent();
         
-        // Basic text extraction
+        // Process text content to preserve formatting
         if (textContent && textContent.items) {
-          const pageText = textContent.items
-            .filter(item => 'str' in item && typeof item.str === 'string')
-            .map(item => (item as TextItem).str)
-            .join(' ');
-          
+          // Use our helper for proper text formatting
+          const pageText = mergeTextContent(textContent);
           fullText += pageText + '\n\n';
         }
         
-        page.cleanup();
+        // Clean up page resources
+        try {
+          page.cleanup();
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
       } catch (pageError) {
         console.warn(`Error extracting text from page ${pageNum} in worker-free mode:`, pageError);
       }
@@ -177,10 +199,16 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
     try {
       pdfDocument.destroy();
     } catch (e) {
-      console.warn('Error cleaning up PDF document in worker-free mode:', e);
+      // Ignore cleanup errors
     }
     
-    return fullText.trim();
+    // Process the text
+    const cleanedText = fullText
+      .replace(/\s+/g, ' ')  // Normalize whitespace
+      .trim();
+    
+    console.log(`Worker-free extraction completed with ${cleanedText.length} characters`);
+    return cleanedText;
   } catch (error) {
     console.error('Error in worker-free extraction:', error);
     throw error; // Let the caller handle this
@@ -325,19 +353,20 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
   
   try {
     console.log('Extracting text using PDF.js with serverless compatibility...');
+    console.log(`Environment: ${process.env.NODE_ENV}`);
     
     // Ensure worker is preloaded
     await preloadPdfJsWorker();
     
-    // Use worker-free approach as the primary method for extraction (optimized for serverless)
+    // Try worker-free approach first in all environments
+    console.log('Using worker-free approach as primary extraction method');
     let fullText = '';
     try {
-      console.log('Starting with worker-free extraction as primary method');
       fullText = await extractTextWithoutWorker(fileData);
       
       // If we got enough text, use it directly
       if (fullText && fullText.trim().length > 100) {
-        console.log('Successfully extracted text using worker-free approach');
+        console.log(`Successfully extracted ${fullText.length} characters using worker-free approach`);
         return {
           text: fullText,
           method: 'worker-free'
@@ -352,7 +381,8 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
       warnings.push(`Worker-free extraction error: ${workerFreeError instanceof Error ? workerFreeError.message : String(workerFreeError)}`);
     }
     
-    // If worker-free approach failed or returned insufficient text, try the fallback approach
+    // If worker-free approach failed, try the fallback approach
+    console.log('Using fallback extraction as secondary method');
     const fallbackText = await fallbackExtraction(fileData);
     
     if (fallbackText && fallbackText.trim().length > 100) {
@@ -364,7 +394,7 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
       };
     }
     
-    // If we have at least some text, return it
+    // If we have at least some text from worker-free, return it
     if (fullText && fullText.trim().length > 0) {
       warnings.push('Using partial results from worker-free extraction');
       return {

@@ -34,14 +34,16 @@ function createOpenAIClient(): OpenAI {
 function createSystemPrompt(formattedResume: string): string {
   return `You are "Bob the Interview Bot", a friendly but professional AI interviewer, designed to help users practice for job interviews.
 
-You will conduct a behavioral interview based on the following resume. Your goal is to help the candidate get better at interviews by asking common behavioral questions relevant to their experience.
+You will conduct a behavioral interview based on the following information. Your goal is to help the candidate get better at interviews by asking common behavioral questions. Due to PDF extraction limitations, some resumes may contain scrambled text, in which case use general interview questions.
 
 ${formattedResume}
 
 - Ask one question at a time, and wait for the user's response.
-- Focus on asking behavioral questions related to the candidate's experiences and skills.
+- Ask behavioral questions that are relevant to the candidate's experience if available.
+- If the resume text appears scrambled or unreadable, use generic but helpful interview questions.
 - Use the STAR (Situation, Task, Action, Result) framework as a basis for your questions.
 - Start with a friendly introduction, then proceed with the interview.
+- If the resume is unreadable, ask the candidate about their background and experience first.
 - Ask follow-up questions when appropriate.
 - After about 5-6 questions, end the interview with positive feedback.
 - Focus on helping the user improve their interview skills.`;
@@ -53,6 +55,14 @@ ${formattedResume}
 export async function fetchOpenAIResponse(resumeText: string): Promise<string> {
   try {
     console.log('Generating initial greeting with OpenAI...');
+    console.log(`Resume text length: ${resumeText.length} characters`);
+    
+    // Check for badly garbled text (common with fallback extraction)
+    const nonAlphaNumericRatio = (resumeText.match(/[^a-zA-Z0-9\s.,;:'\-\(\)@\/]/g)?.length || 0) / resumeText.length;
+    if (nonAlphaNumericRatio > 0.1) {
+      console.log(`Resume appears to contain garbled text (${Math.round(nonAlphaNumericRatio * 100)}% non-alphanumeric). Notifying OpenAI.`);
+      resumeText = `[NOTE: The resume text appears to be partially garbled due to PDF extraction limitations. Please use general interview questions.]\n\n${resumeText}`;
+    }
     
     // Create OpenAI client
     const openai = createOpenAIClient();
