@@ -329,13 +329,14 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
     // Ensure worker is preloaded
     await preloadPdfJsWorker();
     
-    // First try the worker-free approach for serverless
+    // Use worker-free approach as the primary method for extraction (optimized for serverless)
     let fullText = '';
     try {
+      console.log('Starting with worker-free extraction as primary method');
       fullText = await extractTextWithoutWorker(fileData);
       
       // If we got enough text, use it directly
-      if (fullText && fullText.trim().length > 200) {
+      if (fullText && fullText.trim().length > 100) {
         console.log('Successfully extracted text using worker-free approach');
         return {
           text: fullText,
