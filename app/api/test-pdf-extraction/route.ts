@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as pdfExtractor from '../../utils/pdf-extractor';
+import { ExtractionResult } from '../../utils/resume-types';
 
 // Define types for PDF.js since we're using dynamic import
 interface PDFDocumentProxy {
@@ -242,38 +244,95 @@ export async function POST(req: NextRequest) {
 
     // Log environment information
     console.log(`Node environment: ${process.env.NODE_ENV}`);
-    console.log(`Using fallback extraction`);
 
     const arrayBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(arrayBuffer);
     console.log(`File buffer created, length: ${fileData.length} bytes`);
 
-    // Test text extraction methods
-    console.log('Testing text extraction methods...');
-    const extractionResults = await extractTextFromPDF(fileData);
+    // Get PDF.js version info
+    const pdfJsVersion = await pdfExtractor.getPdfJsVersion();
+
+    // Test each method independently for diagnostic info
+    let workerText = '';
+    let workerFreeText = '';
+    let fallbackText = '';
+    let extractionResult: ExtractionResult = { text: '', method: 'failed' };
+    const errors: string[] = [];
+
+    // Run the full extraction with our new prioritized approach
+    try {
+      extractionResult = await pdfExtractor.extractTextFromPDF(fileData);
+      console.log(`Text extracted with method: ${extractionResult.method}, length: ${extractionResult.text.length}`);
+    } catch (e) {
+      console.error('Main extraction failed:', e);
+      errors.push(`Main extraction error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // Test standard worker-based extraction
+    try {
+      workerText = await pdfExtractor.extractTextWithWorker(fileData);
+      console.log(`Worker-based extraction: ${workerText.length} chars`);
+    } catch (e) {
+      console.error('Worker extraction test failed:', e);
+      errors.push(`Worker-based extraction error: ${e instanceof Error ? e.message : String(e)}`);
+      workerText = '';
+    }
+
+    // Test worker-free extraction
+    try {
+      workerFreeText = await pdfExtractor.extractTextWithoutWorker(fileData);
+      console.log(`Worker-free extraction: ${workerFreeText.length} chars`);
+    } catch (e) {
+      console.error('Worker-free extraction test failed:', e);
+      errors.push(`Worker-free extraction error: ${e instanceof Error ? e.message : String(e)}`);
+      workerFreeText = '';
+    }
+
+    // Test fallback extraction
+    try {
+      fallbackText = await pdfExtractor.fallbackExtraction(fileData);
+      console.log(`Fallback extraction: ${fallbackText.length} chars`);
+    } catch (e) {
+      console.error('Fallback extraction test failed:', e);
+      errors.push(`Fallback extraction error: ${e instanceof Error ? e.message : String(e)}`);
+      fallbackText = '';
+    }
 
     // Return detailed diagnostic information
     return new Response(JSON.stringify({
       status: 'ok',
+      method_used: extractionResult.method,
       diagnostics: {
         environment: process.env.NODE_ENV,
-        pdfjs_version: extractionResults.version,
+        pdfjs_version: pdfJsVersion,
         file_info: {
           name: file.name,
           size: file.size,
           type: file.type
         },
-        worker_free_extraction: {
-          success: !!extractionResults.workerFreeText,
-          text_length: extractionResults.workerFreeText?.length || 0,
-          text_sample: extractionResults.workerFreeText?.substring(0, 200) + '...' || ''
-        },
         worker_based_extraction: {
-          success: false,
-          text_length: 0,
-          text_sample: "Worker-based extraction disabled to avoid build issues"
+          success: workerText.length > 100,
+          text_length: workerText.length,
+          text_sample: workerText.substring(0, 200) + (workerText.length > 200 ? '...' : '')
         },
-        errors: extractionResults.errors
+        worker_free_extraction: {
+          success: workerFreeText.length > 100,
+          text_length: workerFreeText.length,
+          text_sample: workerFreeText.substring(0, 200) + (workerFreeText.length > 200 ? '...' : '')
+        },
+        fallback_extraction: {
+          success: fallbackText.length > 100,
+          text_length: fallbackText.length,
+          text_sample: fallbackText.substring(0, 200) + (fallbackText.length > 200 ? '...' : '')
+        },
+        final_result: {
+          success: extractionResult.text.length > 100,
+          method: extractionResult.method,
+          text_length: extractionResult.text.length,
+          text_sample: extractionResult.text.substring(0, 200) + (extractionResult.text.length > 200 ? '...' : ''),
+          warnings: extractionResult.warnings || []
+        },
+        errors: errors
       }
     }), {
       status: 200,
