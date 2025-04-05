@@ -49,6 +49,15 @@ export function mergeTextContent(textContent: TextContent): string {
 }
 
 /**
+ * Load PDF.js library with proper type assertions
+ */
+async function loadPdfJs() {
+  // Use dynamic import with any type to avoid TypeScript errors
+  const pdfjs = await import('pdfjs-dist') as any;
+  return pdfjs;
+}
+
+/**
  * Function to preload PDF.js worker to improve cold start performance
  * Only needs to be called once per server instance
  */
@@ -60,29 +69,22 @@ export async function preloadPdfJsWorker(): Promise<void> {
   try {
     console.log('Preloading PDF.js worker...');
     
-    // Import pdfjs-pure instead of pdfjs-dist
-    const pdfJsModule = await import('pdfjs-pure');
-    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    // Import PDF.js
+    const pdfjs = await loadPdfJs();
     
-    // Access worker setup from the right place
-    const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
-    
-    // Use unpkg CDN instead of cdnjs as it has the correct version
-    const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.0/build/pdf.worker.min.js";
-    
-    // Check if GlobalWorkerOptions exists before trying to set it
-    if (GlobalWorkerOptions) {
-      GlobalWorkerOptions.workerSrc = PDFJS_CDN;
+    // Configure worker
+    if (pdfjs.GlobalWorkerOptions) {
+      // Use CDN for the worker
+      const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.0/build/pdf.worker.min.js";
+      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
       console.log(`Set worker source to: ${PDFJS_CDN}`);
+      
+      // Mark as loaded
+      pdfWorkerLoaded = true;
+      console.log('PDF.js worker source configured');
     } else {
-      console.warn('GlobalWorkerOptions not available, using workerPort approach');
+      console.warn('GlobalWorkerOptions not available, worker functionality may be limited');
     }
-    
-    // We'll skip the worker preload test to avoid top-level awaits
-    // Just mark as loaded since we've set the worker source
-    pdfWorkerLoaded = true;
-    console.log('PDF.js worker source configured');
-    
   } catch (e) {
     console.error('Error preloading PDF.js worker:', e);
   }
@@ -96,50 +98,14 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Import pdfjs-pure instead of pdfjs-dist
-    const pdfJsModule = await import('pdfjs-pure');
-    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    // Import PDF.js
+    const pdfjs = await loadPdfJs();
     
-    // Access getDocument from the right place
-    let getDocument;
+    // Get document function with proper type handling
+    const getDocument = pdfjs.getDocument || (pdfjs.default && pdfjs.default.getDocument);
     
-    // Try different ways to access getDocument to handle various module structures
-    if (typeof pdfjsLib.getDocument === 'function') {
-      getDocument = pdfjsLib.getDocument;
-      console.log('Found getDocument in pdfjsLib');
-    } else if (typeof pdfJsModule.getDocument === 'function') {
-      getDocument = pdfJsModule.getDocument;
-      console.log('Found getDocument in pdfJsModule');
-    } else {
-      // If not found directly, try to find it in any exported property
-      for (const key of Object.keys(pdfjsLib)) {
-        // Use type assertion with an index type for safe property access
-        const pdfjsLibItem = pdfjsLib as Record<string, any>;
-        if (typeof pdfjsLibItem[key]?.getDocument === 'function') {
-          getDocument = pdfjsLibItem[key].getDocument;
-          console.log(`Found getDocument in pdfjsLib.${key}`);
-          break;
-        }
-      }
-      
-      if (!getDocument && pdfJsModule !== pdfjsLib) {
-        for (const key of Object.keys(pdfJsModule)) {
-          // Use type assertion with an index type for safe property access
-          const pdfJsModuleItem = pdfJsModule as Record<string, any>;
-          if (typeof pdfJsModuleItem[key]?.getDocument === 'function') {
-            getDocument = pdfJsModuleItem[key].getDocument;
-            console.log(`Found getDocument in pdfJsModule.${key}`);
-            break;
-          }
-        }
-      }
-    }
-    
-    if (typeof getDocument !== 'function') {
-      console.error('PDF.js module structure:', Object.keys(pdfJsModule).join(', '));
-      if (pdfjsLib !== pdfJsModule) {
-        console.error('PDF.js lib structure:', Object.keys(pdfjsLib).join(', '));
-      }
+    if (!getDocument) {
+      console.error('PDF.js module structure:', Object.keys(pdfjs).join(', '));
       throw new Error('getDocument function not found in PDF.js');
     }
     
@@ -151,7 +117,6 @@ export async function extractTextWithoutWorker(fileData: Uint8Array): Promise<st
       useWorkerFetch: false,
       isEvalSupported: false,
       // If available in this version, explicitly disable the worker
-      // TypeScript doesn't know about this property, but it's supported in some versions
       // @ts-ignore - intentionally using non-standard option
       disableWorker: true,
       // Disable advanced features that might require a worker
@@ -334,18 +299,18 @@ export async function fallbackExtraction(fileData: Uint8Array): Promise<string> 
  */
 export async function getPdfJsVersion(): Promise<string> {
   try {
-    const pdfJsModule = await import('pdfjs-pure');
-    const pdfjsLib = pdfJsModule.default || pdfJsModule;
+    // Use our helper to load PDF.js
+    const pdfjs = await loadPdfJs();
     
     // Try multiple ways to get the version
-    const version = pdfjsLib.version || pdfJsModule.version;
+    const version = pdfjs.version || (pdfjs.default && pdfjs.default.version);
     
     if (version) {
       return version;
     }
     
     // If version isn't directly available, log the module structure
-    return `Version not directly available. Available properties: ${Object.keys(pdfJsModule).join(', ')}`;
+    return `Version not directly available. Available properties: ${Object.keys(pdfjs).join(', ')}`;
   } catch (e) {
     return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
   }

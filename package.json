@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "postinstall": "echo 'Skipping canvas installation' > node_modules/canvas/index.js"
+    "lint": "next lint"
   },
   "dependencies": {
     "@livekit/agents": "^0.7.1",
@@ -21,6 +20,7 @@
     "@vercel/analytics": "^1.2.2",
     "ai": "^2.2.31",
     "autoprefixer": "10.4.15",
+    "canvas-shim": "file:./canvas-pkg",
     "encoding": "^0.1.13",
     "eslint": "8.47.0",
     "eslint-config-next": "13.4.19",
@@ -30,7 +30,7 @@
     "livekit-server-sdk": "^2.10.2",
     "next": "13.4.19",
     "openai": "^4.24.2",
-    "pdfjs-pure": "^2.16.0",
+    "pdfjs-dist": "^2.16.0",
     "postcss": "8.4.28",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
@@ -56,9 +56,18 @@
     "last 2 Safari versions"
   ],
   "resolutions": {
-    "canvas": "empty:canvas-shim"
+    "canvas": "file:./canvas-pkg",
+    "pdfjs-dist": "2.16.0"
   },
   "overrides": {
-    "canvas": "empty:canvas-shim"
+    "canvas": "file:./canvas-pkg"
+  },
+  "peerDependencies": {
+    "canvas": "*"
+  },
+  "peerDependenciesMeta": {
+    "canvas": {
+      "optional": true
+    }
   }
 }

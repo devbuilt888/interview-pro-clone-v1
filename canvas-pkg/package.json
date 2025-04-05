@@ -1,0 +1,7 @@
+{
+  "name": "canvas-shim",
+  "version": "0.0.1",
+  "description": "Empty canvas implementation for serverless environments",
+  "main": "index.js",
+  "license": "MIT"
+} 
