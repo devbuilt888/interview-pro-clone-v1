@@ -448,6 +448,25 @@ function extractFromTJOperations(text: string, fragments: string[]): void {
         }
       }
       
+      // For complex TJ arrays, try to extract structured data
+      if (textParts.length === 0 && match[1].length > 10) {
+        // Some PDFs encode each character separately with positioning
+        // Example: [(T) -123 (h) -234 (e)] TJ
+        const complexPattern = /\(([^)]{1,2})\)\s*-?\d+(\.\d+)?/g;
+        let charMatch;
+        let reconstructed = '';
+        
+        while ((charMatch = complexPattern.exec(match[1])) !== null) {
+          if (charMatch[1]) {
+            reconstructed += charMatch[1];
+          }
+        }
+        
+        if (reconstructed.length > 2) {
+          textParts.push(cleanPDFString(reconstructed));
+        }
+      }
+      
       // Join parts with spaces and add to fragments
       const content = textParts.join(' ').trim();
       if (content.length > 2 && hasActualText(content)) {
@@ -458,7 +477,7 @@ function extractFromTJOperations(text: string, fragments: string[]): void {
 }
 
 /**
- * Extract text from stream blocks
+ * Extract text from stream blocks with enhanced gibberish filtering
  */
 function extractFromStreams(text: string, fragments: string[]): void {
   const streamPattern = /stream\s+([\s\S]*?)\s+endstream/g;
@@ -467,14 +486,44 @@ function extractFromStreams(text: string, fragments: string[]): void {
   while ((match = streamPattern.exec(text)) !== null) {
     if (match[1] && match[1].length > 10) {
       // Get readable text only
-      const cleanText = match[1].replace(/[^\x20-\x7E\r\n]/g, ' ').trim();
+      const cleanText = match[1]
+        .replace(/[^\x20-\x7E\r\n]/g, ' ')
+        .replace(/[\[\]\{\}\\^_#@&]/g, ' ') // Remove common gibberish characters
+        .trim();
       
-      // Find word patterns
-      const wordPattern = /[A-Za-z][a-zA-Z]{2,}[a-zA-Z\s.,;:?!-]{2,}/g;
-      const words = cleanText.match(wordPattern);
+      // Extract content between BT and ET tags (text objects)
+      const btEtPattern = /BT\s+([\s\S]*?)\s+ET/g;
+      let textObjMatch;
       
-      if (words && words.length > 3) {
-        fragments.push(words.join(' '));
+      while ((textObjMatch = btEtPattern.exec(cleanText)) !== null) {
+        if (textObjMatch[1] && textObjMatch[1].length > 5) {
+          // Extract text operators: Tj, TJ, ', ", etc.
+          const textOpPattern = /\(([^)]+)\)\s*(Tj|TJ|'|")/g;
+          let opMatch;
+          
+          while ((opMatch = textOpPattern.exec(textObjMatch[1])) !== null) {
+            if (opMatch[1]) {
+              const cleaned = cleanPDFString(opMatch[1]);
+              if (cleaned.length > 2 && hasActualText(cleaned)) {
+                fragments.push(cleaned);
+              }
+            }
+          }
+        }
+      }
+      
+      // Find word patterns if BT/ET extraction yielded no results
+      if (fragments.length === 0 || (fragments.at(-1)?.length || 0) < 10) {
+        // More aggressive word pattern for difficult PDFs
+        const wordPattern = /[A-Za-z][a-zA-Z]{2,}[a-zA-Z\s.,;:?!-]{2,}/g;
+        const words = cleanText.match(wordPattern);
+        
+        if (words && words.length > 3) {
+          const wordText = words.join(' ');
+          if (hasActualText(wordText)) {
+            fragments.push(wordText);
+          }
+        }
       }
     }
   }
@@ -488,6 +537,9 @@ function cleanPDFString(str: string): string {
     // Handle octal escapes
     .replace(/\\(\d{3})/g, (_, octal) => 
       String.fromCharCode(parseInt(octal, 8)))
+    // Handle hex escapes (common in problematic PDFs)
+    .replace(/\\([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)))
     // Handle standard escapes  
     .replace(/\\([nrtbf\\()])/g, (_, escape) => {
       const escapeMap: {[key: string]: string} = {
@@ -497,6 +549,8 @@ function cleanPDFString(str: string): string {
       };
       return escapeMap[escape] || ' ';
     })
+    // Handle special PDF characters
+    .replace(/\\([^0-9A-Fa-f()\\\n\r\t\b\f])/g, '$1')
     // Handle positional numbers
     .replace(/-?\d+(\.\d+)?/g, ' ')
     // Normalize spaces
@@ -505,25 +559,49 @@ function cleanPDFString(str: string): string {
 }
 
 /**
- * Process text fragments into a cohesive document
+ * Process text fragments into a cohesive document with enhanced filtering
  */
 function processTextFragments(fragments: string[]): string {
   if (fragments.length === 0) {
     return '';
   }
 
-  // Filter out gibberish/binary fragments
+  // Filter out gibberish/binary fragments with enhanced detection
   const filteredFragments = fragments.filter(fragment => {
     // Skip very short fragments
     if (fragment.length < 2) return false;
     
     // Count letters and characters
     const letters = (fragment.match(/[A-Za-z]/g) || []).length;
+    const words = fragment.match(/\b[a-zA-Z]{2,}\b/g) || [];
     const total = fragment.length;
     
+    // Check for specific gibberish patterns from test results
+    if (/^[A-Z\s\d\[\]\^_#@&]+$/.test(fragment) && letters / total < 0.5) {
+      return false; // Matches the "S C K S ]S KK S U A D J" pattern
+    }
+    
+    // Reject fragments with very few words
+    if (words.length < 2 && fragment.length > 5) {
+      return false;
+    }
+    
+    // Reject fragments with too many special characters
+    const specialChars = (fragment.match(/[^a-zA-Z0-9\s.,;:?!-]/g) || []).length;
+    if (specialChars > total * 0.3) {
+      return false;
+    }
+    
     // Keep if good letter ratio
-    return letters > 2 && letters / total > 0.3;
+    return letters > 2 && letters / total > 0.3 && words.length > 0;
   });
+  
+  // Add special processing for difficult PDFs with lots of gibberish
+  if (filteredFragments.length === 0 || 
+      (filteredFragments.join(' ').match(/[A-Za-z]/g) || []).length < 100) {
+    // Try more aggressive extraction for difficult PDFs
+    return extractTextFromDifficultPDF(fragments.join(' '));
+  }
   
   // Join fragments
   let text = filteredFragments.join('\n');
@@ -542,6 +620,76 @@ function processTextFragments(fragments: string[]): string {
   
   // Format it as a resume
   return formatResumeText(text);
+}
+
+/**
+ * Special extraction function for difficult PDFs that generate a lot of gibberish
+ */
+function extractTextFromDifficultPDF(rawText: string): string {
+  console.log('Using specialized extraction for difficult PDF with gibberish');
+  
+  // Look for actual English words in the mess
+  const wordPattern = /\b[a-zA-Z]{3,}[a-zA-Z\s]*\b/g;
+  const words = rawText.match(wordPattern) || [];
+  
+  if (words.length < 10) {
+    return "Failed to extract meaningful text from this PDF format.";
+  }
+  
+  // Filter out non-dictionary words and gibberish
+  const commonWords = new Set([
+    "the", "and", "for", "with", "that", "have", "this", "from", "not", "are", "was", "were", "will", "been",
+    "has", "had", "they", "their", "about", "would", "could", "should", "what", "when", "where", "which", "who",
+    "how", "than", "then", "them", "these", "those", "some", "such", "very", "just", "more", "most", "other",
+    "experience", "skills", "education", "work", "job", "project", "resume", "summary", "profile", "contact",
+    "professional", "development", "management", "email", "phone", "university", "college", "degree", "team",
+    "data", "analysis", "software", "engineer", "developer", "manager", "lead", "senior", "junior", "year",
+    "years", "month", "months", "present", "current", "previous"
+  ]);
+  
+  // Keep only likely meaningful words
+  const meaningfulWords = words.filter(word => {
+    // Keep common resume words
+    if (commonWords.has(word.toLowerCase())) {
+      return true;
+    }
+    
+    // Keep capitalized words (likely proper nouns)
+    if (/^[A-Z][a-z]{2,}/.test(word)) {
+      return true;
+    }
+    
+    // Keep words with multiple syllables
+    const syllablePattern = /[aeiouy]{1,2}/gi;
+    const syllables = word.match(syllablePattern) || [];
+    if (syllables.length >= 2 && word.length > 4) {
+      return true;
+    }
+    
+    // Reject very short uncommon words
+    return word.length > 3;
+  });
+  
+  // Group words into potential sentences or fragments
+  const fragments: string[] = [];
+  let currentFragment: string[] = [];
+  
+  meaningfulWords.forEach(word => {
+    currentFragment.push(word);
+    
+    // Start a new fragment at likely sentence boundaries
+    if (/[A-Z][a-z]{2,}/.test(word) && currentFragment.length > 5) {
+      fragments.push(currentFragment.join(' '));
+      currentFragment = [];
+    }
+  });
+  
+  // Add the last fragment
+  if (currentFragment.length > 0) {
+    fragments.push(currentFragment.join(' '));
+  }
+  
+  return fragments.join('\n').trim();
 }
 
 /**
@@ -590,9 +738,28 @@ function hasActualText(str: string): boolean {
   
   // Count letters
   const letters = (str.match(/[A-Za-z]/g) || []).length;
+  const total = str.length;
   
-  // Need reasonable letter count
-  return letters > 2 && /[A-Za-z]/.test(str);
+  // Common gibberish patterns from the test results
+  const gibberishPatterns = [
+    /^[A-Z\s]+$/,                   // All uppercase and spaces
+    /^[^a-zA-Z0-9]+$/,              // No alphanumeric characters
+    /^[A-Z\d\s\[\]^_#@&]+$/,        // Matches "S C K S ]S KK S U A D J I^P_1 9 8" pattern
+    /[\]\[}{><~`^\|]{2,}/,          // Multiple special characters
+    /(?:\s\S){5,}/,                 // Alternating space and single character
+    /\d{2,}\s*[a-zA-Z]\^/,          // Numbers followed by letter and caret
+    /[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/    // Single uppercase letters with spaces
+  ];
+  
+  // Check for any gibberish patterns
+  for (const pattern of gibberishPatterns) {
+    if (pattern.test(str)) {
+      return false;
+    }
+  }
+  
+  // Need reasonable letter count and ratio
+  return letters > 2 && letters / total > 0.3;
 }
 
 /**
@@ -865,7 +1032,7 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
     // Try extraction - worker-free will auto-use fallback in production
     console.log('Starting PDF text extraction...');
     let extractedText = '';
-    let method: 'worker-free' | 'fallback' = 'worker-free'; 
+    let method: 'worker-free' | 'fallback' | 'fallback-enhanced' = 'worker-free'; 
     
     try {
       extractedText = await extractTextWithoutWorker(fileData);
@@ -879,6 +1046,19 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
       }
       
       console.log(`Successfully extracted ${extractedText.length} characters`);
+      
+      // Check for gibberish in the extracted text
+      const { format } = detectPdfFormat(extractedText);
+      if (format === 'standard' && 
+          /[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/.test(extractedText.slice(0, 100)) &&
+          extractedText.length > 0) {
+        console.log('Detected gibberish in extracted text, using enhanced extraction');
+        // Try the fallback with more aggressive cleaning for gibberish texts
+        const rawText = new TextDecoder().decode(fileData);
+        extractedText = extractTextFromDifficultPDF(rawText);
+        method = 'fallback-enhanced';
+        warnings.push('Used enhanced extraction due to detected gibberish');
+      }
     } catch (error) {
       console.error('Error in primary extraction method:', error);
       warnings.push(`Extraction error: ${error instanceof Error ? error.message : String(error)}`);
@@ -903,7 +1083,7 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
     // Return the results
     return {
       text: extractedText,
-      method,
+      method: method as 'worker-free' | 'fallback' | 'fallback-enhanced', // Type cast to maintain compatibility
       warnings: warnings.length > 0 ? warnings : undefined
     };
   } catch (error) {
