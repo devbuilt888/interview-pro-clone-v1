@@ -182,9 +182,6 @@ async function preloadPdfJsWorker() {
   }
 }
 
-// Attempt to preload the worker
-preloadPdfJsWorker();
-
 // Serverless-specific PDF extraction that doesn't rely on workers
 async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
@@ -195,9 +192,45 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
     const pdfjsLib = pdfJsModule.default || pdfJsModule;
     
     // Access getDocument from the right place
-    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
+    let getDocument;
+    
+    // Try different ways to access getDocument to handle various module structures
+    if (typeof pdfjsLib.getDocument === 'function') {
+      getDocument = pdfjsLib.getDocument;
+      console.log('Found getDocument in pdfjsLib');
+    } else if (typeof pdfJsModule.getDocument === 'function') {
+      getDocument = pdfJsModule.getDocument;
+      console.log('Found getDocument in pdfJsModule');
+    } else {
+      // If not found directly, try to find it in any exported property
+      for (const key of Object.keys(pdfjsLib)) {
+        // Use type assertion with an index type for safe property access
+        const pdfjsLibItem = pdfjsLib as Record<string, any>;
+        if (typeof pdfjsLibItem[key]?.getDocument === 'function') {
+          getDocument = pdfjsLibItem[key].getDocument;
+          console.log(`Found getDocument in pdfjsLib.${key}`);
+          break;
+        }
+      }
+      
+      if (!getDocument && pdfJsModule !== pdfjsLib) {
+        for (const key of Object.keys(pdfJsModule)) {
+          // Use type assertion with an index type for safe property access
+          const pdfJsModuleItem = pdfJsModule as Record<string, any>;
+          if (typeof pdfJsModuleItem[key]?.getDocument === 'function') {
+            getDocument = pdfJsModuleItem[key].getDocument;
+            console.log(`Found getDocument in pdfJsModule.${key}`);
+            break;
+          }
+        }
+      }
+    }
     
     if (typeof getDocument !== 'function') {
+      console.error('PDF.js module structure:', Object.keys(pdfJsModule).join(', '));
+      if (pdfjsLib !== pdfJsModule) {
+        console.error('PDF.js lib structure:', Object.keys(pdfjsLib).join(', '));
+      }
       throw new Error('getDocument function not found in PDF.js');
     }
     
@@ -335,11 +368,11 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
         
         // Create a document loading task with improved options and fallbacks
         const loadingTask = getDocument({
-          data: fileData,
-          disableFontFace: true,
-          useSystemFonts: true,
-          useWorkerFetch: false, // Important for serverless
-          isEvalSupported: false, // Important for serverless
+      data: fileData,
+      disableFontFace: true,
+      useSystemFonts: true,
+      useWorkerFetch: false, // Important for serverless
+      isEvalSupported: false, // Important for serverless
           // Workaround for serverless - we'll handle this differently
           // disableWorker: true is not a standard option but it works in some PDF.js versions
           ...(typeof (pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions) === 'undefined' ? 
@@ -354,27 +387,27 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
           cMapPacked: true,
           // Standard font data
           standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/',
-        });
-        
-        // Using a timeout to prevent hanging in case of worker issues
-        const pdfDocumentPromise = Promise.race([
-          loadingTask.promise,
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
-          )
-        ]);
-        
-        // Load the document
-        const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
-        console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
-        
+    });
+    
+    // Using a timeout to prevent hanging in case of worker issues
+    const pdfDocumentPromise = Promise.race([
+      loadingTask.promise,
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
+      )
+    ]);
+    
+    // Load the document
+    const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
+    console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
+    
         // Extract text from each page with improved handling
         let standardText = '';
-        const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
-        
-        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-          try {
-            const page = await pdfDocument.getPage(pageNum);
+    const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
+    
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      try {
+        const page = await pdfDocument.getPage(pageNum);
             
             // Try to get annotations (like form fields) that might contain text
             let annotationText = '';
@@ -409,17 +442,17 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
             // Combine annotation text and page text
             standardText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
         
-            page.cleanup();
-          } catch (pageError) {
-            console.warn(`Error extracting text from page ${pageNum}:`, pageError);
-          }
-        }
-        
-        // Clean up the PDF document
-        try {
-          pdfDocument.destroy();
-        } catch (e) {
-          console.warn('Error destroying PDF document:', e);
+        page.cleanup();
+      } catch (pageError) {
+        console.warn(`Error extracting text from page ${pageNum}:`, pageError);
+      }
+    }
+    
+    // Clean up the PDF document
+    try {
+      pdfDocument.destroy();
+    } catch (e) {
+      console.warn('Error destroying PDF document:', e);
         }
         
         // If we got useful text from the standard approach, use it
@@ -850,6 +883,9 @@ async function fetchOpenAIResponse(extractedText: string): Promise<string> {
 export async function POST(req: NextRequest) {
   try {
     console.log('PDF extraction request received');
+    
+    // Preload worker on demand instead of at top level
+    await preloadPdfJsWorker();
     
     const formData = await req.formData();
     const file = formData.get('file') as File;

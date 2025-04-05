@@ -35,11 +35,18 @@ const nextConfig = {
         'pdfjs-dist/build/pdf.worker.mjs': 'pdfjs-dist/build/pdf.worker.mjs',
       });
       
-      // Crucial fix: Exclude canvas dependency which causes build errors on Vercel
-      config.externals.push({
-        canvas: 'commonjs ./canvas-mock.js', // Use our canvas mock
-        'pdfjs-dist/lib/display/node_stream': 'commonjs pdfjs-dist/lib/display/node_stream',
-        'pdfjs-dist/lib/display/node_utils': 'commonjs pdfjs-dist/lib/display/node_utils',
+      // Complete exclusion of canvas package - don't even try to compile it
+      config.externals.push(function(context, request, callback) {
+        if (request === 'canvas' || request.includes('canvas/') || request.startsWith('canvas\\')) {
+          return callback(null, 'commonjs ./canvas-mock.js');
+        }
+        
+        // Also exclude various node-specific PDF.js utilities
+        if (request.includes('pdfjs-dist/lib/display/node_')) {
+          return callback(null, 'commonjs ' + request);
+        }
+        
+        callback();
       });
     } else {
       // On client side, ensure the worker is properly included
@@ -52,7 +59,7 @@ const nextConfig = {
     
     // Add special rule for PDF.js ESM modules
     config.module.rules.push({
-      test: /pdf\.mjs$/,
+      test: /\.mjs$/,
       type: 'javascript/auto',
       resolve: {
         fullySpecified: false
