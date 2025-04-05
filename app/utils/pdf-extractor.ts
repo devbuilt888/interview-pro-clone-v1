@@ -231,6 +231,108 @@ function isServerless(): boolean {
 }
 
 /**
+ * Special handler for extracting text from Apache FOP generated PDFs 
+ * (which are often used by LinkedIn resume exports)
+ */
+function extractApacheFopContent(pdfText: string): string {
+  console.log('Using specialized Apache FOP extractor for LinkedIn resumes');
+  
+  // Output text fragments
+  const textFragments: string[] = [];
+  
+  // Extract name (often found in specific patterns)
+  const namePattern = /\/(Title|Name)\s*\(\s*([A-Za-z][A-Za-z\s\.\-,']+)\s*\)/;
+  const nameMatch = pdfText.match(namePattern);
+  if (nameMatch && nameMatch[2] && nameMatch[2].length > 3) {
+    textFragments.push(nameMatch[2].trim());
+  }
+  
+  // Extract section headers (Education, Experience, etc.)
+  const sectionPattern = /\/(T|Tag|Topic)\s*\(\s*(Summary|Experience|Education|Skills|Languages|Interests|Projects|Certifications|Volunteer|Awards|Publications)\s*\)/gi;
+  const sections: string[] = [];
+  let sectionMatch;
+  while ((sectionMatch = sectionPattern.exec(pdfText)) !== null) {
+    if (sectionMatch[2]) {
+      const sectionName = sectionMatch[2].trim();
+      sections.push(sectionName);
+      textFragments.push(`\n\n${sectionName.toUpperCase()}:\n`);
+    }
+  }
+  
+  // Extract text content using more reliable patterns
+  
+  // 1. Look for readable text in TJ operations (common in Apache FOP)
+  const tjPattern = /\/(F\d+)\s+[0-9.]+\s+Tf\s*\[(([^[\]]*?))\]\s*TJ/g;
+  let tjMatch;
+  while ((tjMatch = tjPattern.exec(pdfText)) !== null) {
+    if (tjMatch[2]) {
+      // Clean the text content
+      let content = tjMatch[2]
+        .replace(/\(|\)/g, '') // Remove parentheses
+        .replace(/'/g, '') // Remove quotes
+        .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))) // Convert octal escapes
+        .replace(/-?\d+(\.\d+)?/g, ' ') // Remove positioning numbers
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+      
+      // Only keep if it looks like actual text
+      if (content.length > 2 && /[A-Za-z]/.test(content) && !/^[^a-zA-Z]+$/.test(content)) {
+        textFragments.push(content);
+      }
+    }
+  }
+  
+  // 2. Get text from stream blocks
+  const streamPattern = /stream\s+([\s\S]*?)\s+endstream/g;
+  let streamMatch;
+  while ((streamMatch = streamPattern.exec(pdfText)) !== null) {
+    if (streamMatch[1]) {
+      // Extract only readable text from streams
+      const readableText = streamMatch[1].replace(/[^\x20-\x7E\r\n]/g, ' ');
+      
+      // Find words and phrases in the stream
+      const wordPattern = /[A-Za-z][A-Za-z .,;:!?'\-]{4,}/g;
+      const words = readableText.match(wordPattern);
+      
+      if (words && words.length > 0) {
+        textFragments.push(words.join(' '));
+      }
+    }
+  }
+  
+  // 3. Extract content from LinkedIn-specific text blocks
+  const linkedinTextPattern = /BT\s+\/[A-Za-z0-9]+\s+[0-9.]+\s+Tf\s+[0-9.\-]+\s+[0-9.\-]+\s+Td\s+\(\s*([^)]+)\s*\)\s+Tj\s+ET/g;
+  let linkedinMatch;
+  while ((linkedinMatch = linkedinTextPattern.exec(pdfText)) !== null) {
+    if (linkedinMatch[1]) {
+      const content = linkedinMatch[1].trim();
+      if (content.length > 2 && /[A-Za-z]/.test(content)) {
+        textFragments.push(content);
+      }
+    }
+  }
+  
+  // Filter out redundant entries or gibberish
+  const filteredText = textFragments
+    .filter(fragment => {
+      // Must have letters to be valid text
+      const letters = (fragment.match(/[A-Za-z]/g) || []).length;
+      const total = fragment.length;
+      
+      // Keep fragments with a good ratio of letters to total characters
+      return letters > 2 && letters / total > 0.3;
+    })
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .replace(/(\S)\n(\S)/g, '$1 $2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  
+  console.log(`Apache FOP extraction found ${filteredText.length} characters`);
+  return filteredText;
+}
+
+/**
  * Improved fallback text extraction for PDFs
  * Emulates key parts of pdfjs while being serverless compatible
  */
@@ -242,180 +344,18 @@ export async function fallbackExtraction(fileData: Uint8Array): Promise<string> 
     const text = new TextDecoder().decode(fileData);
     console.log(`Decoded ${text.length} characters for processing`);
     
-    // Combined results array to store all extracted text fragments
-    const textFragments: string[] = [];
+    // Check if this is a LinkedIn resume with Apache FOP
+    const isLinkedIn = text.includes('urn:li:memberResume:');
+    const isApacheFOP = text.includes('Apache FOP Version');
     
-    // PHASE 1: Extract text from PDF text objects (most reliable for readable text)
-    console.log('Phase 1: Extracting text from PDF text objects...');
-    
-    // Find text objects with Tj and TJ operators (contain actual visible text)
-    const textRe = /\[(.*?)(?:Tj|TJ)\]/g;
-    let textMatch;
-    while ((textMatch = textRe.exec(text)) !== null) {
-      if (textMatch[1]) {
-        // Clean up the text content, removing PDF escape sequences
-        let fragment = textMatch[1]
-          .replace(/\\(\d{3}|n|r|t|b|f|\\|\(|\))/g, ' ') // Handle escape sequences
-          .replace(/\(/g, '')  // Remove opening parentheses
-          .replace(/\)/g, '')  // Remove closing parentheses
-          .replace(/\\$/g, '') // Remove trailing backslashes
-          .trim();
-        
-        // PDF sometimes uses hex encoding for strings
-        if (fragment.match(/^<[0-9A-Fa-f\s]+>$/)) {
-          // Convert hex to ASCII
-          fragment = fragment
-            .replace(/[<>\s]/g, '')
-            .match(/.{2}/g)
-            ?.map(hex => String.fromCharCode(parseInt(hex, 16)))
-            .join('') || '';
-        }
-        
-        if (fragment.length > 0) {
-          textFragments.push(fragment);
-        }
-      }
+    if (isLinkedIn || isApacheFOP) {
+      console.log('LinkedIn/Apache FOP PDF detected, using specialized extraction');
+      return extractStructuredContent(text);
     }
     
-    // PHASE 2: Extract text from parentheses (common in PDF text objects)
-    console.log('Phase 2: Extracting text from parentheses...');
-    const parenthesesRe = /\(([^)\\]*(?:\\.[^)\\]*)*)\)/g;
-    let parenthesesMatch;
-    while ((parenthesesMatch = parenthesesRe.exec(text)) !== null) {
-      if (parenthesesMatch[1]) {
-        // Clean up the content, removing PDF escape sequences
-        let fragment = parenthesesMatch[1]
-          .replace(/\\(\d{3}|n|r|t|b|f|\\|\(|\))/g, match => {
-            // Convert octal escape sequences to characters
-            if (/^\d{3}$/.test(match.substring(1))) {
-              return String.fromCharCode(parseInt(match.substring(1), 8));
-            }
-            // Handle other escape sequences
-            const escapeMap: {[key: string]: string} = {
-              'n': '\n', 'r': '\r', 't': '\t', 'b': '\b', 'f': '\f', '\\': '\\', '(': '(', ')': ')'
-            };
-            return escapeMap[match.substring(1)] || ' ';
-          })
-          .trim();
-        
-        if (fragment.length > 0 && !/^[0-9.]+$/.test(fragment)) { // Skip numeric-only fragments
-          textFragments.push(fragment);
-        }
-      }
-    }
+    // For other PDF types, use the general extraction approach
+    return extractGenericPDFContent(text);
     
-    // PHASE 3: Try to find structured content blocks (useful for resumes)
-    console.log('Phase 3: Extracting structured content blocks...');
-    
-    // Look for content blocks (resume sections often have patterns)
-    const contentBlockRe = /\/T[^(]*\(([^)]+)\)[^(]*\(([^)]+)\)/g;
-    let contentMatch;
-    while ((contentMatch = contentBlockRe.exec(text)) !== null) {
-      if (contentMatch[1] && contentMatch[2]) {
-        // These often represent label + content pairs in forms/resumes
-        let label = contentMatch[1].trim();
-        let content = contentMatch[2].trim();
-        
-        if (label.length > 0 && content.length > 0) {
-          textFragments.push(`${label}: ${content}`);
-        }
-      }
-    }
-    
-    // PHASE 4: Extract font-encoded text (handles PDF font mappings better)
-    console.log('Phase 4: Extracting font-encoded text...');
-    
-    // Try to parse font encodings using more sophisticated regex
-    const fontTextRe = /\/F\d+\s+[0-9.]+\s+Tf\s*\n?\r?([^]*?)(?:ET|BT)/g;
-    let fontMatch;
-    while ((fontMatch = fontTextRe.exec(text)) !== null) {
-      if (fontMatch[1]) {
-        // Extract text content from font blocks, removing operators
-        const fontContent = fontMatch[1]
-          .replace(/\s*(?:T[cdjmrs*]|Tm|Td|Tf|ET|BT)\s*/g, ' ')
-          .replace(/[\[\]']/g, '')
-          .trim();
-        
-        if (fontContent.length > 0 && !/^[\d\s.]+$/.test(fontContent)) {
-          textFragments.push(fontContent);
-        }
-      }
-    }
-    
-    // PHASE 5: Look for resume-specific patterns
-    console.log('Phase 5: Detecting resume-specific content...');
-    
-    // Resume section headers (common in most resumes)
-    const resumeSectionRe = /\b(Education|Experience|Skills|Work|Employment|Qualifications|Summary|Profile|Objective|Contact|References|Projects|Certifications|Languages|Interests|Activities)\b/gi;
-    let sectionMatch;
-    const sectionMatches: string[] = [];
-    while ((sectionMatch = resumeSectionRe.exec(text)) !== null) {
-      sectionMatches.push(sectionMatch[1]);
-    }
-    
-    if (sectionMatches.length > 0) {
-      console.log(`Detected resume sections: ${sectionMatches.join(', ')}`);
-      textFragments.push(`Detected Resume Sections: ${sectionMatches.join(', ')}`);
-    }
-    
-    // Combined approaches output
-    let extractedText = '';
-    
-    if (textFragments.length > 0) {
-      // Join text fragments intelligently
-      extractedText = textFragments
-        .filter(Boolean)
-        .filter(fragment => fragment.length > 1)  // Remove single-character fragments
-        .join('\n')
-        .replace(/\s+/g, ' ')    // Normalize whitespace
-        .replace(/(\S)\n(\S)/g, '$1 $2') // Join broken lines
-        .replace(/\n{3,}/g, '\n\n'); // Remove excessive newlines
-    } else {
-      // Fallback if all else fails - try the original approaches
-      console.log('Using original fallback extraction approaches...');
-      
-      // Original approach 1: Extract text between BT and ET markers
-      const btEtMatches = text.match(/BT[\s\S]*?ET/g) || [];
-      const btEtText = btEtMatches
-        .map(block => block
-          .replace(/BT|ET/g, '')
-          .replace(/Tj|TJ/g, '')
-          .replace(/[\(\)]/g, '')
-          .trim())
-        .join(' ');
-      
-      // Original approach 2: Extract from parentheses
-      const parenthesesMatches = text.match(/\(([^)]+)\)/g) || [];
-      const parenthesesText = parenthesesMatches
-        .map(match => match.slice(1, -1))
-        .join(' ');
-      
-      // Original approach 3: Find words
-      const wordMatches = text.match(/[a-zA-Z]{3,}[a-zA-Z\s\.\,\:\;\-\']{2,}/g) || [];
-      const wordText = wordMatches.join(' ');
-      
-      // Combine all approaches
-      extractedText = [btEtText, parenthesesText, wordText]
-        .filter(t => t.length > 0)
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-    
-    console.log(`Enhanced extraction got ${extractedText.length} characters`);
-    
-    // Clean up the text
-    extractedText = extractedText
-      .replace(/[^\x20-\x7E\r\n]/g, ' ') // Remove non-printable chars
-      .replace(/\s+/g, ' ')              // Normalize whitespace
-      .replace(/(\D)(\d{3})(\d{3})(\d{4})/g, '$1$2-$3-$4') // Format phone numbers
-      .replace(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi, '\nEmail: $1\n') // Highlight emails
-      .trim();
-    
-    // Detect and format common resume patterns
-    extractedText = formatResumeText(extractedText);
-    
-    return extractedText;
   } catch (error) {
     console.error('Error in enhanced fallback extraction:', error);
     return "Failed to extract text from PDF. The file may be corrupt or password protected.";
@@ -423,44 +363,461 @@ export async function fallbackExtraction(fileData: Uint8Array): Promise<string> 
 }
 
 /**
+ * Extract text from structured content (LinkedIn/Adobe FOP)
+ */
+function extractStructuredContent(pdfText: string): string {
+  // Output text fragments
+  const textFragments: string[] = [];
+  
+  // Extract name (common in resumes)
+  const namePattern = /\/([A-Za-z]+)\s*\(\s*([A-Za-z][A-Za-z\s\.\-,']{3,})\s*\)/;
+  const nameMatch = pdfText.match(namePattern);
+  if (nameMatch && nameMatch[2] && nameMatch[2].length > 3) {
+    textFragments.push(nameMatch[2].trim());
+  }
+  
+  // Process section headers (Education, Experience, etc.)
+  const sectionHeaders = ["Experience", "Education", "Skills", "Summary", "Work", 
+    "Volunteer", "Projects", "Certificates", "Awards", "Languages", "Interests"];
+  
+  const sectionPattern = new RegExp(`\\/(T|Tx|Title|Heading)\\s*\\(\\s*(${sectionHeaders.join('|')})\\s*\\)`, 'gi');
+  let sectionMatch;
+  
+  while ((sectionMatch = sectionPattern.exec(pdfText)) !== null) {
+    if (sectionMatch[2]) {
+      const sectionName = sectionMatch[2].trim();
+      textFragments.push(`\n\n${sectionName.toUpperCase()}:\n`);
+    }
+  }
+  
+  // Extract actual text content from PDF operators
+  
+  // Extract from text operators (common in PDFs)
+  extractFromTextOperators(pdfText, textFragments);
+  
+  // Extract from TJ operations (common in Apache FOP)
+  extractFromTJOperations(pdfText, textFragments);
+  
+  // Extract from streams (when other methods fail)
+  extractFromStreams(pdfText, textFragments);
+  
+  // Filter and process the text
+  return processTextFragments(textFragments);
+}
+
+/**
+ * Extract text from text operators (Tj)
+ */
+function extractFromTextOperators(text: string, fragments: string[]): void {
+  const tjPattern = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*(?:Tj|TJ)/g;
+  let match;
+  
+  while ((match = tjPattern.exec(text)) !== null) {
+    if (match[1] && match[1].length > 0) {
+      // Clean the text content
+      const content = cleanPDFString(match[1]);
+      
+      // Only add meaningful text
+      if (content.length > 2 && hasActualText(content)) {
+        fragments.push(content);
+      }
+    }
+  }
+}
+
+/**
+ * Extract text from TJ operations (array-based text)
+ */
+function extractFromTJOperations(text: string, fragments: string[]): void {
+  // Look for text arrays with TJ operator
+  const tjArrayPattern = /\[((?:[^[\]]*?))\]\s*TJ/g;
+  let match;
+  
+  while ((match = tjArrayPattern.exec(text)) !== null) {
+    if (match[1]) {
+      // Extract text parts (skip numbers which are spacing adjustments)
+      const textParts: string[] = [];
+      
+      // Match all text strings in parentheses
+      const partPattern = /\(([^)]+)\)/g;
+      let partMatch;
+      
+      while ((partMatch = partPattern.exec(match[1])) !== null) {
+        if (partMatch[1]) {
+          textParts.push(cleanPDFString(partMatch[1]));
+        }
+      }
+      
+      // Join parts with spaces and add to fragments
+      const content = textParts.join(' ').trim();
+      if (content.length > 2 && hasActualText(content)) {
+        fragments.push(content);
+      }
+    }
+  }
+}
+
+/**
+ * Extract text from stream blocks
+ */
+function extractFromStreams(text: string, fragments: string[]): void {
+  const streamPattern = /stream\s+([\s\S]*?)\s+endstream/g;
+  let match;
+  
+  while ((match = streamPattern.exec(text)) !== null) {
+    if (match[1] && match[1].length > 10) {
+      // Get readable text only
+      const cleanText = match[1].replace(/[^\x20-\x7E\r\n]/g, ' ').trim();
+      
+      // Find word patterns
+      const wordPattern = /[A-Za-z][a-zA-Z]{2,}[a-zA-Z\s.,;:?!-]{2,}/g;
+      const words = cleanText.match(wordPattern);
+      
+      if (words && words.length > 3) {
+        fragments.push(words.join(' '));
+      }
+    }
+  }
+}
+
+/**
+ * Clean a PDF string (handle escapes, etc.)
+ */
+function cleanPDFString(str: string): string {
+  return str
+    // Handle octal escapes
+    .replace(/\\(\d{3})/g, (_, octal) => 
+      String.fromCharCode(parseInt(octal, 8)))
+    // Handle standard escapes  
+    .replace(/\\([nrtbf\\()])/g, (_, escape) => {
+      const escapeMap: {[key: string]: string} = {
+        'n': '\n', 'r': '\r', 't': '\t', 
+        'b': '\b', 'f': '\f', '\\': '\\',
+        '(': '(', ')': ')'
+      };
+      return escapeMap[escape] || ' ';
+    })
+    // Handle positional numbers
+    .replace(/-?\d+(\.\d+)?/g, ' ')
+    // Normalize spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Process text fragments into a cohesive document
+ */
+function processTextFragments(fragments: string[]): string {
+  if (fragments.length === 0) {
+    return '';
+  }
+
+  // Filter out gibberish/binary fragments
+  const filteredFragments = fragments.filter(fragment => {
+    // Skip very short fragments
+    if (fragment.length < 2) return false;
+    
+    // Count letters and characters
+    const letters = (fragment.match(/[A-Za-z]/g) || []).length;
+    const total = fragment.length;
+    
+    // Keep if good letter ratio
+    return letters > 2 && letters / total > 0.3;
+  });
+  
+  // Join fragments
+  let text = filteredFragments.join('\n');
+  
+  // Clean up text
+  text = text
+    // Remove metadata
+    .replace(/Apache FOP Version \d+\.\d+/g, '')
+    .replace(/urn:li:memberResume:\d+/g, '')
+    .replace(/D:\d{14}Z/g, '')
+    // Clean up formatting
+    .replace(/\s+/g, ' ')
+    .replace(/(\S)\n(\S)/g, '$1 $2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  
+  // Format it as a resume
+  return formatResumeText(text);
+}
+
+/**
+ * Extract text from generic PDFs (not LinkedIn/Apache FOP)
+ */
+function extractGenericPDFContent(text: string): string {
+  // Output fragments
+  const fragments: string[] = [];
+  
+  // Extract from text operators
+  extractFromTextOperators(text, fragments);
+  
+  // Extract text from parentheses
+  const parensPattern = /\(([^)]+)\)/g;
+  let match;
+  
+  while ((match = parensPattern.exec(text)) !== null) {
+    if (match[1] && match[1].length > 2) {
+      const content = cleanPDFString(match[1]);
+      if (hasActualText(content)) {
+        fragments.push(content);
+      }
+    }
+  }
+  
+  // Extract from streams
+  extractFromStreams(text, fragments);
+  
+  // As last resort, just get any words
+  if (fragments.length === 0) {
+    const wordMatches = text.match(/[a-zA-Z]{3,}[a-zA-Z\s\.\,\:\;\-\']{2,}/g) || [];
+    if (wordMatches.length > 0) {
+      fragments.push(wordMatches.join(' '));
+    }
+  }
+  
+  // Process the text
+  return processTextFragments(fragments);
+}
+
+/**
+ * Check if a string contains actual text (vs binary/gibberish)
+ */
+function hasActualText(str: string): boolean {
+  if (!str || str.length < 2) return false;
+  
+  // Count letters
+  const letters = (str.match(/[A-Za-z]/g) || []).length;
+  
+  // Need reasonable letter count
+  return letters > 2 && /[A-Za-z]/.test(str);
+}
+
+/**
+ * Clean up extracted text to remove gibberish and improve structure
+ */
+function cleanupExtractedText(text: string): string {
+  if (!text) return '';
+  
+  return text
+    // Remove non-printable and control characters
+    .replace(/[^\x20-\x7E\r\n]/g, ' ')
+    
+    // Handle common PDF artifacts
+    .replace(/[`~@#$%^&*_=+|<>{}[\]]/g, ' ')
+    
+    // Remove isolated special characters
+    .replace(/(\s)[.,;:!?]+(\s)/g, '$1$2')
+    
+    // Format email addresses
+    .replace(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi, '\nEmail: $1\n')
+    
+    // Format phone numbers
+    .replace(/(\D)(\d{3})(\d{3})(\d{4})/g, '$1$2-$3-$4')
+    
+    // Format URLs
+    .replace(/(https?:\/\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]+)/gi, '\nWebsite: $1\n')
+    
+    // Remove consecutive spaces
+    .replace(/\s+/g, ' ')
+    
+    // Clean up line breaks
+    .replace(/\n{3,}/g, '\n\n')
+    
+    .trim();
+}
+
+/**
  * Format extracted text to better resemble resume structure
  */
 function formatResumeText(text: string): string {
-  // Look for common resume patterns and format accordingly
+  if (!text) return '';
   
-  // Format section headers
-  const sectionHeaders = [
-    'Education', 'Experience', 'Work Experience', 'Skills', 
-    'Professional Experience', 'Employment', 'Qualifications',
-    'Summary', 'Profile', 'Objective', 'Contact', 'References', 
-    'Projects', 'Certifications', 'Languages', 'Interests'
-  ];
+  // Format section headers with more comprehensive matching
+  const sectionHeaderMap: {[key: string]: string} = {
+    // Education section variations
+    'education': 'EDUCATION',
+    'academic background': 'EDUCATION',
+    'educational background': 'EDUCATION',
+    'academic history': 'EDUCATION',
+    'degrees': 'EDUCATION',
+    'schools': 'EDUCATION',
+    'universities': 'EDUCATION',
+    'academics': 'EDUCATION',
+    
+    // Experience section variations
+    'experience': 'EXPERIENCE',
+    'work experience': 'WORK EXPERIENCE',
+    'employment': 'EMPLOYMENT HISTORY',
+    'employment history': 'EMPLOYMENT HISTORY',
+    'professional experience': 'PROFESSIONAL EXPERIENCE',
+    'work history': 'WORK HISTORY',
+    'career history': 'CAREER HISTORY',
+    'positions': 'POSITIONS HELD',
+    'jobs': 'EMPLOYMENT HISTORY',
+    
+    // Skills section variations
+    'skills': 'SKILLS',
+    'expertise': 'EXPERTISE',
+    'technical skills': 'TECHNICAL SKILLS',
+    'core competencies': 'CORE COMPETENCIES',
+    'proficiencies': 'PROFICIENCIES',
+    'key skills': 'KEY SKILLS',
+    'abilities': 'ABILITIES',
+    'qualifications': 'QUALIFICATIONS',
+    
+    // Summary section variations
+    'summary': 'SUMMARY',
+    'professional summary': 'PROFESSIONAL SUMMARY',
+    'executive summary': 'EXECUTIVE SUMMARY',
+    'profile': 'PROFILE',
+    'professional profile': 'PROFESSIONAL PROFILE',
+    'career objective': 'CAREER OBJECTIVE',
+    'objective': 'OBJECTIVE',
+    'about': 'ABOUT',
+    
+    // Other common sections
+    'contact': 'CONTACT INFORMATION',
+    'contact information': 'CONTACT INFORMATION',
+    'personal information': 'PERSONAL INFORMATION',
+    'personal details': 'PERSONAL DETAILS',
+    'publications': 'PUBLICATIONS',
+    'certifications': 'CERTIFICATIONS',
+    'certificates': 'CERTIFICATIONS',
+    'honors': 'HONORS & AWARDS',
+    'awards': 'HONORS & AWARDS',
+    'projects': 'PROJECTS',
+    'languages': 'LANGUAGES',
+    'interests': 'INTERESTS',
+    'hobbies': 'HOBBIES & INTERESTS',
+    'activities': 'ACTIVITIES',
+    'volunteer': 'VOLUNTEER EXPERIENCE',
+    'volunteer experience': 'VOLUNTEER EXPERIENCE',
+    'references': 'REFERENCES',
+    'courses': 'COURSES',
+    'training': 'TRAINING'
+  };
   
   let formatted = text;
   
   // Format section headers
-  sectionHeaders.forEach(header => {
-    const headerRegex = new RegExp(`\\b${header}\\b`, 'gi');
-    formatted = formatted.replace(headerRegex, `\n\n${header.toUpperCase()}:`);
+  Object.entries(sectionHeaderMap).forEach(([key, value]) => {
+    const pattern = new RegExp(`(?:^|\\n|\\b)${key}(?:\\s*:|\\s*$|\\b)`, 'gi');
+    formatted = formatted.replace(pattern, `\n\n${value}:\n`);
   });
   
-  // Format dates (common in resumes)
-  formatted = formatted.replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\s*(-|–|to)\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{4}\b/gi, '\n$&\n');
-  formatted = formatted.replace(/\b\d{4}\s*(-|–|to)\s*\d{4}\b/g, '\n$&\n');
-  formatted = formatted.replace(/\b\d{4}\s*(-|–|to)\s*(Present|Current)\b/gi, '\n$&\n');
+  // Detect and format personal information with improved patterns
   
-  // Format job titles/education degrees (often in title case)
-  formatted = formatted.replace(/\b([A-Z][a-z]+\s+)+(?:Engineer|Developer|Manager|Director|Specialist|Analyst|Consultant|Coordinator|Designer|Architect)\b/g, '\n$&\n');
-  formatted = formatted.replace(/\b(?:Bachelor|Master|PhD|Doctor|Associate)[\s\w]+(?:Science|Arts|Engineering|Business|Administration|Technology)\b/g, '\n$&\n');
+  // Name detection - look for prominent name formats at beginning of resume
+  const namePatterns = [
+    /^([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?:\s|$)/,  // First Last format
+    /^([A-Z]{2,}\s+[A-Z]{2,}(?:\s+[A-Z]{2,})?)(?:\s|$)/,        // FIRST LAST format
+  ];
   
-  // Format companies/schools (often appear with locations)
-  formatted = formatted.replace(/\n([A-Z][a-zA-Z\s&,]+)\s*,\s*([A-Za-z\s]+,\s*[A-Z]{2})/g, '\n$1 - $2\n');
+  for (const pattern of namePatterns) {
+    const match = formatted.match(pattern);
+    if (match && match[1] && match[1].length > 4) {
+      const name = match[1].trim();
+      formatted = formatted.replace(match[0], `${name}\n\n`);
+      break;
+    }
+  }
+  
+  // Contact information - make prominent
+  const contactPatterns = [
+    // Email - make prominent
+    {
+      regex: /(?:\b|\s)([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:\b|\s)/g,
+      format: '\nEmail: $1\n'
+    },
+    // Phone - recognize various formats
+    {
+      regex: /(?:\b|\s)((?:\+\d{1,3}[-\s]?)?(?:\(?\d{3}\)?[-\s.]?\d{3}[-\s.]?\d{4}))(?:\b|\s)/g,
+      format: '\nPhone: $1\n'
+    },
+    // LinkedIn - extract username
+    {
+      regex: /(?:\b|\s)((?:linkedin\.com\/in\/|linkedin:)([A-Za-z0-9_-]+))(?:\b|\s)/g,
+      format: '\nLinkedIn: $1\n'
+    },
+    // Website/portfolio
+    {
+      regex: /(?:\b|\s)((?:https?:\/\/)?(?:www\.)?[A-Za-z0-9][-A-Za-z0-9.]*\.[A-Za-z]{2,}(?:\/[-A-Za-z0-9+&@#/%=~_|]*)?)(?:\b|\s)/g,
+      format: '\nWebsite: $1\n'
+    },
+    // Location/address
+    {
+      regex: /(?:\b|\s)([A-Za-z ]+,\s*[A-Z]{2}(?:\s+\d{5})?)(?:\b|\s)/g,
+      format: '\nLocation: $1\n'
+    }
+  ];
+  
+  // Apply contact patterns
+  contactPatterns.forEach(({ regex, format }) => {
+    formatted = formatted.replace(regex, format);
+  });
+  
+  // Format dates (common in resumes) with improved patterns
+  const datePatterns = [
+    // Month Year - Month Year format
+    {
+      regex: /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[.\s]+(\d{4})\s*([-–—]|to)\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[.\s]+(\d{4})\b/gi,
+      format: '\n$1 $2 $3 $4 $5\n'
+    },
+    // Year - Year format
+    {
+      regex: /\b(\d{4})\s*([-–—]|to)\s*(\d{4}|\bPresent\b|\bCurrent\b)\b/gi,
+      format: '\n$1 $2 $3\n'
+    },
+    // Year - Present format
+    {
+      regex: /\b(\d{4})\s*([-–—]|to)\s*(Present|Current|Now)\b/gi,
+      format: '\n$1 $2 $3\n'
+    }
+  ];
+  
+  // Apply date patterns
+  datePatterns.forEach(({ regex, format }) => {
+    formatted = formatted.replace(regex, format);
+  });
+  
+  // Detect job titles and employers (typically in proximity to dates)
+  const companyRolePattern = /\n([A-Z][A-Za-z\s&,]*)\s*[|•]\s*([A-Z][A-Za-z\s&,]*)\b/g;
+  formatted = formatted.replace(companyRolePattern, '\n$1 | $2\n');
+  
+  // Format job titles (often in title case before dates)
+  const jobTitles = [
+    'Software Engineer', 'Software Developer', 'Web Developer', 'Front End', 'Back End', 'Full Stack', 
+    'Data Scientist', 'Data Analyst', 'Data Engineer', 'Product Manager', 'Project Manager', 'UX Designer', 
+    'UI Developer', 'Graphic Designer', 'DevOps Engineer', 'System Administrator', 'Network Engineer', 
+    'QA Engineer', 'Quality Assurance', 'Tester', 'Technical Writer', 'IT Support', 'IT Specialist', 
+    'Director', 'Vice President', 'Manager', 'Lead', 'Senior', 'Junior', 'Intern', 'Consultant', 
+    'Coordinator', 'Specialist', 'Analyst', 'Administrator', 'Assistant', 'Associate', 'Executive'
+  ];
+  
+  // Match job titles
+  const jobTitleRegex = new RegExp(`\\b(${jobTitles.join('|')})\\b`, 'g');
+  formatted = formatted.replace(jobTitleRegex, '\n$1\n');
+  
+  // Format education degrees
+  const educationRegex = /\b(Bachelor|Master|PhD|Doctor|Associate|B\.?S\.?|M\.?S\.?|B\.?A\.?|M\.?A\.?|Ph\.?D\.?|M\.?B\.?A\.?|B\.?B\.?A\.?)[\s\.]+(?:of|in)?\s+([A-Za-z\s]+)/gi;
+  formatted = formatted.replace(educationRegex, '\n$1 in $2\n');
   
   // Format bullet points (common in resume descriptions)
-  formatted = formatted.replace(/([.•·])\s*([A-Z])/g, '$1\n• $2');
+  formatted = formatted.replace(/[•·■⦿◦●○◆◇▪▫-]\s*([A-Z][a-z])/g, '\n• $1');
   
-  // Clean up potential duplicate newlines
+  // Convert sequences of whitespace with at least one line break to exactly two line breaks
+  formatted = formatted.replace(/\s*\n\s*/g, '\n\n');
+  
+  // Remove excessive newlines
   formatted = formatted.replace(/\n{3,}/g, '\n\n');
+  
+  // Fix spacing around punctuation
+  formatted = formatted
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/([.,;:!?])([A-Za-z])/g, '$1 $2');
   
   return formatted;
 }
@@ -559,5 +916,98 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
       method: 'fallback',
       warnings
     };
+  }
+}
+
+// Add a PDF format detector function to help with specific formats
+function detectPdfFormat(text: string): { format: string; confidence: number } {
+  // Default format
+  let format = 'standard';
+  let confidence = 0;
+  
+  // Check for LinkedIn resume markers
+  if (text.includes('urn:li:memberResume:')) {
+    format = 'linkedin';
+    confidence = 0.9;
+  }
+  // Check for Apache FOP marker
+  else if (text.includes('Apache FOP Version')) {
+    format = 'apache-fop';
+    confidence = 0.8;
+  }
+  // Check for other common resume builder formats
+  else if (text.includes('Indeed Resume') || text.includes('generated by Indeed')) {
+    format = 'indeed';
+    confidence = 0.7;
+  }
+  else if (text.includes('Zety') || text.includes('Resume Genius')) {
+    format = 'resume-builder';
+    confidence = 0.7;
+  }
+  
+  return { format, confidence };
+}
+
+// Add LinkedIn-specific extraction logic with improvements
+if (detectedFormat.format === 'linkedin') {
+  console.log('LinkedIn resume detected, applying specific extraction rules');
+  
+  // Look for specific patterns in LinkedIn resumes
+  const linkedinPatterns = [
+    // LinkedIn section headers (with improved pattern)
+    /\/T\s*\(\s*(Summary|Experience|Education|Skills|Languages|Interests|Certifications|Endorsements|Recommendations|Additional|Volunteer|Projects|Awards|Publications|Test Scores|Courses|Patents)\s*\)/g,
+    
+    // LinkedIn text blocks (with improved pattern)
+    /\/Tx\s*\[\s*\(\s*([^)]{10,})\s*\)\s*\]/g,
+    
+    // LinkedIn form fields (with improved pattern)
+    /\/T[tf]\s*\(\s*([^)]{3,})\s*\)/g,
+    
+    // LinkedIn content blocks (additional pattern)
+    /\/Contents\s*\[\s*\(\s*([^)]{3,})\s*\)\s*\]/g,
+    
+    // Additional LinkedIn patterns
+    /<text[^>]*>([^<]+)<\/text>/g,
+    /\/Contents\s*\(\s*([^)]{3,})\s*\)/g,
+    /\/Title\s*\(\s*([^)]{3,})\s*\)/g,
+    
+    // LinkedIn profile information
+    /Profile\s*Information(?:[\s\S]*?)(?:Name|Location|Title|Industry):\s*([^\n]+)/g
+  ];
+  
+  // Process each LinkedIn pattern
+  linkedinPatterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[1] && match[1].trim().length > 0) {
+        const content = match[1].trim();
+        if (/[A-Za-z]/.test(content)) {
+          // Add section headers with formatting
+          if (/Summary|Experience|Education|Skills|Languages|Interests|Certifications/.test(content)) {
+            textFragments.push(`\n\n${content.toUpperCase()}:\n`);
+          } else {
+            // Clean up the content before adding
+            const cleanContent = content
+              .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)))
+              .replace(/\\n/g, '\n')
+              .trim();
+              
+            if (cleanContent.length > 1) {
+              textFragments.push(cleanContent);
+            }
+          }
+        }
+      }
+    }
+  });
+  
+  // Look for profile name (LinkedIn usually has this at the top)
+  const profileNameMatch = text.match(/\/Name\s*\(\s*([^)]{3,})\s*\)/);
+  if (profileNameMatch && profileNameMatch[1]) {
+    const name = profileNameMatch[1].trim();
+    if (name.length > 3 && /[A-Za-z]/.test(name)) {
+      // Add name at the beginning
+      textFragments.unshift(`\n${name}\n`);
+    }
   }
 } 
