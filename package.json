@@ -30,7 +30,7 @@
     "livekit-server-sdk": "^2.10.2",
     "next": "13.4.19",
     "openai": "^4.24.2",
-    "pdfjs-dist": "^2.16.0",
+    "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
@@ -57,7 +57,7 @@
   ],
   "resolutions": {
     "canvas": "file:./canvas-pkg",
-    "pdfjs-dist": "2.16.0"
+    "pdfjs-dist": "2.16.105"
   },
   "overrides": {
     "canvas": "file:./canvas-pkg"

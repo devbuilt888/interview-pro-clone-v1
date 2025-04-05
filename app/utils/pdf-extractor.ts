@@ -74,8 +74,8 @@ export async function preloadPdfJsWorker(): Promise<void> {
     
     // Configure worker
     if (pdfjs.GlobalWorkerOptions) {
-      // Use CDN for the worker
-      const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.0/build/pdf.worker.min.js";
+      // Use CDN for the worker - updated to correct version
+      const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js";
       pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_CDN;
       console.log(`Set worker source to: ${PDFJS_CDN}`);
       

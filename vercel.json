@@ -1,0 +1,11 @@
+{
+  "buildCommand": "yarn install && yarn build",
+  "installCommand": "yarn install",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "build": {
+    "env": {
+      "NODE_OPTIONS": "--max-old-space-size=3072"
+    }
+  }
+} 
