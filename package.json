@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "echo 'Skipping canvas installation' > node_modules/canvas/index.js"
   },
   "dependencies": {
     "@livekit/agents": "^0.7.1",
@@ -29,7 +30,7 @@
     "livekit-server-sdk": "^2.10.2",
     "next": "13.4.19",
     "openai": "^4.24.2",
-    "pdfjs-dist": "^4.0.379",
+    "pdfjs-pure": "^2.16.0",
     "postcss": "8.4.28",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
@@ -53,5 +54,11 @@
     "last 2 Chrome versions",
     "last 2 Firefox versions",
     "last 2 Safari versions"
-  ]
+  ],
+  "resolutions": {
+    "canvas": "empty:canvas-shim"
+  },
+  "overrides": {
+    "canvas": "empty:canvas-shim"
+  }
 }

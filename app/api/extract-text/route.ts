@@ -91,15 +91,15 @@ async function preloadPdfJsWorker() {
   try {
     console.log('Preloading PDF.js worker...');
     
-    // Fixed import approach for PDF.js in ESM mode
-    const pdfJsModule = await import('pdfjs-dist');
+    // Import pdfjs-pure instead of pdfjs-dist
+    const pdfJsModule = await import('pdfjs-pure');
     const pdfjsLib = pdfJsModule.default || pdfJsModule;
     
     // Access worker setup from the right place
     const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
     
     // Use unpkg CDN instead of cdnjs as it has the correct version
-    const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
+    const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@2.16.0/build/pdf.worker.min.js";
     
     // Check if GlobalWorkerOptions exists before trying to set it
     if (GlobalWorkerOptions) {
@@ -111,72 +111,11 @@ async function preloadPdfJsWorker() {
       // We'll handle this in the extraction function
     }
     
-    // Create a minimal PDF to initialize the worker
-    const minimalPdf = new Uint8Array([
-      0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x31, 0x20, 0x30,
-      0x20, 0x6f, 0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79, 0x70, 0x65,
-      0x2f, 0x43, 0x61, 0x74, 0x61, 0x6c, 0x6f, 0x67, 0x2f, 0x50, 0x61, 0x67,
-      0x65, 0x73, 0x20, 0x32, 0x20, 0x30, 0x20, 0x52, 0x3e, 0x3e, 0x0a, 0x65,
-      0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x32, 0x20, 0x30, 0x20, 0x6f, 0x62,
-      0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79, 0x70, 0x65, 0x2f, 0x50, 0x61,
-      0x67, 0x65, 0x73, 0x2f, 0x43, 0x6f, 0x75, 0x6e, 0x74, 0x20, 0x31, 0x2f,
-      0x4b, 0x69, 0x64, 0x73, 0x5b, 0x33, 0x20, 0x30, 0x20, 0x52, 0x5d, 0x3e,
-      0x3e, 0x0a, 0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x33, 0x20, 0x30,
-      0x20, 0x6f, 0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x54, 0x79, 0x70, 0x65,
-      0x2f, 0x50, 0x61, 0x67, 0x65, 0x2f, 0x50, 0x61, 0x72, 0x65, 0x6e, 0x74,
-      0x20, 0x32, 0x20, 0x30, 0x20, 0x52, 0x2f, 0x43, 0x6f, 0x6e, 0x74, 0x65,
-      0x6e, 0x74, 0x73, 0x20, 0x34, 0x20, 0x30, 0x20, 0x52, 0x3e, 0x3e, 0x0a,
-      0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a, 0x34, 0x20, 0x30, 0x20, 0x6f,
-      0x62, 0x6a, 0x0a, 0x3c, 0x3c, 0x2f, 0x4c, 0x65, 0x6e, 0x67, 0x74, 0x68,
-      0x20, 0x38, 0x3e, 0x3e, 0x0a, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x0a,
-      0x42, 0x54, 0x0a, 0x45, 0x54, 0x0a, 0x0a, 0x65, 0x6e, 0x64, 0x73, 0x74,
-      0x72, 0x65, 0x61, 0x6d, 0x0a, 0x65, 0x6e, 0x64, 0x6f, 0x62, 0x6a, 0x0a,
-      0x78, 0x72, 0x65, 0x66, 0x0a, 0x30, 0x20, 0x35, 0x0a, 0x30, 0x30, 0x30,
-      0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x20, 0x36, 0x35, 0x35, 0x33,
-      0x35, 0x20, 0x66, 0x0a, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
-      0x31, 0x30, 0x20, 0x30, 0x30, 0x30, 0x30, 0x30, 0x20, 0x6e, 0x0a, 0x30,
-      0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x37, 0x39, 0x20, 0x30, 0x30,
-      0x30, 0x30, 0x30, 0x20, 0x6e, 0x0a, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30,
-      0x30, 0x31, 0x37, 0x33, 0x20, 0x30, 0x30, 0x30, 0x30, 0x30, 0x20, 0x6e,
-      0x0a, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x33, 0x30, 0x31, 0x20,
-      0x30, 0x30, 0x30, 0x30, 0x30, 0x20, 0x6e, 0x0a, 0x74, 0x72, 0x61, 0x69,
-      0x6c, 0x65, 0x72, 0x0a, 0x3c, 0x3c, 0x2f, 0x53, 0x69, 0x7a, 0x65, 0x20,
-      0x35, 0x2f, 0x52, 0x6f, 0x6f, 0x74, 0x20, 0x31, 0x20, 0x30, 0x20, 0x52,
-      0x3e, 0x3e, 0x0a, 0x73, 0x74, 0x61, 0x72, 0x74, 0x78, 0x72, 0x65, 0x66,
-      0x0a, 0x34, 0x30, 0x36, 0x0a, 0x25, 0x25, 0x45, 0x4f, 0x46
-    ]);
+    // We'll skip the worker preload test to avoid top-level awaits
+    // Just mark as loaded since we've set the worker source
+    pdfWorkerLoaded = true;
+    console.log('PDF.js worker source configured');
     
-    // Access getDocument from the right place
-    const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
-    
-    if (typeof getDocument !== 'function') {
-      throw new Error('getDocument function not found in PDF.js');
-    }
-    
-    // Load a tiny PDF just to initialize the worker
-    try {
-      const task = getDocument({
-        data: minimalPdf,
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        disableFontFace: true,
-      });
-      
-      // Set a short timeout for this preloading task
-      const doc = await Promise.race([
-        task.promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Worker preload timeout')), 5000))
-      ]) as PDFDocumentProxy;
-      
-      if (doc) {
-        await doc.destroy();
-      }
-      
-      pdfWorkerLoaded = true;
-      console.log('PDF.js worker preloaded successfully');
-    } catch (e) {
-      console.warn('PDF.js worker preload failed, will initialize on first PDF:', e);
-    }
   } catch (e) {
     console.error('Error preloading PDF.js worker:', e);
   }
@@ -187,8 +126,8 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Fixed import approach for PDF.js in ESM mode
-    const pdfJsModule = await import('pdfjs-dist');
+    // Import pdfjs-pure instead of pdfjs-dist
+    const pdfJsModule = await import('pdfjs-pure');
     const pdfjsLib = pdfJsModule.default || pdfJsModule;
     
     // Access getDocument from the right place
@@ -335,141 +274,10 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<string> {
       console.warn('Worker-free extraction failed, trying standard approach:', workerFreeError);
     }
     
-    // If the worker-free approach failed or returned insufficient text, try the standard approach
+    // If there's not enough text, fall back to regex extraction
     if (!fullText || fullText.trim().length < 200) {
-      try {
-        // Fixed import approach for PDF.js in ESM mode
-        const pdfJsModule = await import('pdfjs-dist');
-        const pdfjsLib = pdfJsModule.default || pdfJsModule;
-        
-        // Access getDocument from the right place
-        const getDocument = pdfjsLib.getDocument || pdfJsModule.getDocument;
-        
-        if (typeof getDocument !== 'function') {
-          throw new Error('getDocument function not found in PDF.js');
-        }
-        
-        // Use unpkg CDN instead of cdnjs as it has the correct version
-        const PDFJS_CDN = "https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.js";
-        
-        // Safely set the worker source with error handling
-        try {
-          const GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions;
-          if (GlobalWorkerOptions) {
-            GlobalWorkerOptions.workerSrc = PDFJS_CDN;
-            console.log(`Using PDF.js worker from: ${PDFJS_CDN}`);
-          } else {
-            console.warn('GlobalWorkerOptions not available, trying alternative approach');
-            // In some environments, we might need to disable workers completely
-          }
-        } catch (workerError) {
-          console.warn('Error setting worker source, proceeding without worker:', workerError);
-        }
-        
-        // Create a document loading task with improved options and fallbacks
-        const loadingTask = getDocument({
-      data: fileData,
-      disableFontFace: true,
-      useSystemFonts: true,
-      useWorkerFetch: false, // Important for serverless
-      isEvalSupported: false, // Important for serverless
-          // Workaround for serverless - we'll handle this differently
-          // disableWorker: true is not a standard option but it works in some PDF.js versions
-          ...(typeof (pdfjsLib.GlobalWorkerOptions || pdfJsModule.GlobalWorkerOptions) === 'undefined' ? 
-            { disableWorker: true } : {}),
-          // Disable canvas which causes build issues on Vercel
-          // @ts-ignore
-          canvasFactory: null,
-          // @ts-ignore
-          styleElement: null,
-          // CMap options - using unpkg instead of self-hosted
-          cMapUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/cmaps/',
-          cMapPacked: true,
-          // Standard font data
-          standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@4.0.379/standard_fonts/',
-    });
-    
-    // Using a timeout to prevent hanging in case of worker issues
-    const pdfDocumentPromise = Promise.race([
-      loadingTask.promise,
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('PDF loading timed out')), 30000)
-      )
-    ]);
-    
-    // Load the document
-    const pdfDocument = await pdfDocumentPromise as PDFDocumentProxy;
-    console.log(`PDF document loaded with ${pdfDocument.numPages} pages`);
-    
-        // Extract text from each page with improved handling
-        let standardText = '';
-    const maxPages = Math.min(pdfDocument.numPages, 10); // Limit to 10 pages
-    
-    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-      try {
-        const page = await pdfDocument.getPage(pageNum);
-            
-            // Try to get annotations (like form fields) that might contain text
-            let annotationText = '';
-            try {
-              const annotations = await page.getAnnotations();
-              if (annotations && annotations.length > 0) {
-                for (const annot of annotations) {
-                  if (annot.fieldValue && typeof annot.fieldValue === 'string') {
-                    annotationText += annot.fieldValue + '\n';
-                  }
-                  if (annot.contents && typeof annot.contents === 'string') {
-                    annotationText += annot.contents + '\n';
-                  }
-                }
-              }
-            } catch (annotError) {
-              console.warn(`Error extracting annotations from page ${pageNum}:`, annotError);
-            }
-            
-            // Get text content with enhanced options
-            const textContent = await page.getTextContent({
-              // Request more detailed text content for better formatting
-              includeMarkedContent: true,
-              disableCombineTextItems: false,
-              // Adds support for expanded character and feature sets
-              normalizeWhitespace: true,
-            });
-            
-            // Use improved text content merger for better formatting
-            const pageText = mergeTextContent(textContent);
-            
-            // Combine annotation text and page text
-            standardText += pageText + (annotationText ? '\n' + annotationText : '') + '\n\n';
-        
-        page.cleanup();
-      } catch (pageError) {
-        console.warn(`Error extracting text from page ${pageNum}:`, pageError);
-      }
-    }
-    
-    // Clean up the PDF document
-    try {
-      pdfDocument.destroy();
-    } catch (e) {
-      console.warn('Error destroying PDF document:', e);
-        }
-        
-        // If we got useful text from the standard approach, use it
-        if (standardText && standardText.trim().length > 200) {
-          fullText = standardText;
-          console.log('Successfully extracted text using standard PDF.js approach');
-        }
-      } catch (standardError) {
-        console.error('Error using standard PDF.js approach:', standardError);
-        // If we have some text from the worker-free approach, use it even if it's not ideal
-        if (fullText && fullText.trim().length > 0) {
-          console.log('Using partial results from worker-free extraction');
-        } else {
-          // Otherwise fall back to regex method
-          return await fallbackExtraction(fileData);
-        }
-      }
+      console.log('PDF.js extraction failed, trying fallback method...');
+      return await fallbackExtraction(fileData);
     }
     
     // If we successfully extracted text
@@ -958,7 +766,7 @@ export async function POST(req: NextRequest) {
 // Helper function to get PDF.js version information
 async function getPdfJsVersion(): Promise<string> {
   try {
-    const pdfJsModule = await import('pdfjs-dist');
+    const pdfJsModule = await import('pdfjs-pure');
     const pdfjsLib = pdfJsModule.default || pdfJsModule;
     
     // Try multiple ways to get the version
