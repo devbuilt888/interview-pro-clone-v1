@@ -7,7 +7,7 @@ export default function TestPdfExtraction() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showFullText, setShowFullText] = useState(false);
+  const [showFullText, setShowFullText] = useState(true);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -33,7 +33,7 @@ export default function TestPdfExtraction() {
     setIsLoading(true);
     setError(null);
     setResult(null);
-    setShowFullText(false);
+    setShowFullText(true);
 
     try {
       const formData = new FormData();
@@ -76,6 +76,12 @@ export default function TestPdfExtraction() {
     }
     
     return fullText;
+  };
+
+  // Calculate text length for display
+  const getTextLength = () => {
+    if (!result) return 0;
+    return result.diagnostics.worker_free_extraction.text_length;
   };
 
   return (
@@ -137,7 +143,7 @@ export default function TestPdfExtraction() {
               <h3 className="text-md font-medium mb-2">Worker-Free Extraction (Serverless Optimized)</h3>
               <div className={`p-3 rounded ${result.diagnostics.worker_free_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
                 <p>Status: {result.diagnostics.worker_free_extraction.success ? 'Success' : 'Failed'}</p>
-                <p>Characters Extracted: {result.diagnostics.worker_free_extraction.text_length}</p>
+                <p>Characters Extracted: {getTextLength()}</p>
                 <p>Method: {result.diagnostics.worker_free_extraction.method || 'standard'}</p>
                 
                 {result.diagnostics.worker_free_extraction.pattern_translation && 
@@ -151,7 +157,7 @@ export default function TestPdfExtraction() {
                 )}
                 
                 {result.diagnostics.worker_free_extraction.success && (
-                  <div className="mt-2">
+                  <div className="mt-4">
                     <div className="flex justify-between items-center">
                       <p className="font-medium">Extracted Text:</p>
                       <button 
@@ -161,9 +167,28 @@ export default function TestPdfExtraction() {
                         {showFullText ? 'Show Preview' : 'Show Full Text'}
                       </button>
                     </div>
-                    <pre className="text-sm mt-1 bg-white p-4 rounded border whitespace-pre-wrap overflow-auto max-h-96">
-                      {getDisplayText()}
-                    </pre>
+                    <div className="mt-2 border rounded">
+                      <div className="flex justify-between items-center px-3 py-2 bg-gray-50 border-b">
+                        <span className="text-sm text-gray-700">
+                          Showing {showFullText ? 'complete' : 'preview of'} text ({getTextLength()} characters)
+                        </span>
+                        {getTextLength() > 500 && (
+                          <button
+                            onClick={() => {
+                              // Copy text to clipboard
+                              navigator.clipboard.writeText(getDisplayText());
+                              alert('Text copied to clipboard!');
+                            }}
+                            className="text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded"
+                          >
+                            Copy to Clipboard
+                          </button>
+                        )}
+                      </div>
+                      <pre className="p-4 text-sm whitespace-pre-wrap overflow-auto max-h-[500px] bg-white">
+                        {getDisplayText()}
+                      </pre>
+                    </div>
                   </div>
                 )}
               </div>

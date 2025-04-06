@@ -305,11 +305,8 @@ export async function POST(req: NextRequest) {
         };
 
     // Determine how much text to show in the sample
-    // Show more text (up to 1000 characters) to provide a better preview
+    // Return the complete extracted text without truncation
     const fullText = extractionResults.workerFreeText || '';
-    const textSample = fullText.length > 1000 
-      ? fullText.substring(0, 1000) + '...' 
-      : fullText;
 
     // Return detailed diagnostic information
     return new Response(JSON.stringify({
@@ -325,7 +322,7 @@ export async function POST(req: NextRequest) {
         worker_free_extraction: {
           success: !!extractionResults.workerFreeText,
           text_length: extractionResults.workerFreeText?.length || 0,
-          text_sample: textSample,
+          text_sample: fullText,
           method: extractionResults.method || 'standard',
           pattern_translation: patternTranslationInfo
         },
