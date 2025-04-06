@@ -190,16 +190,16 @@ export function mapGibberishToSectionHeaders(text: string): Map<string, string> 
   
   // Common section header mappings based on observed patterns
   const mappings: [RegExp, string][] = [
-    [/S KS S U A D J I\^P_1 9 8/i, "SUMMARY"], 
-    [/X P R N C/i, "EXPERIENCE"],
-    [/D U C T N/i, "EDUCATION"],
-    [/S K L S/i, "SKILLS"],
-    [/P R J C T S/i, "PROJECTS"],
-    [/C N T C T/i, "CONTACT"],
-    [/W R K  X P R N C/i, "WORK EXPERIENCE"],
-    [/V L N T R/i, "VOLUNTEER"],
-    [/C R T F C T N S/i, "CERTIFICATIONS"],
-    [/A W R D S/i, "AWARDS"]
+    [/S KS S U A D J I\^P_1 9 8/gi, "SUMMARY"], 
+    [/X P R N C/gi, "EXPERIENCE"],
+    [/D U C T N/gi, "EDUCATION"],
+    [/S K L S/gi, "SKILLS"],
+    [/P R J C T S/gi, "PROJECTS"],
+    [/C N T C T/gi, "CONTACT"],
+    [/W R K  X P R N C/gi, "WORK EXPERIENCE"],
+    [/V L N T R/gi, "VOLUNTEER"],
+    [/C R T F C T N S/gi, "CERTIFICATIONS"],
+    [/A W R D S/gi, "AWARDS"]
   ];
   
   // Apply each mapping
@@ -232,20 +232,30 @@ export function translateGibberishPatterns(text: string): TranslationResult {
   
   // Apply pattern matching
   for (const patternMatch of allPatterns) {
-    const matches = Array.from(text.matchAll(patternMatch.pattern));
-    
-    for (const match of matches) {
-      const extracted = patternMatch.extractFn(match);
+    try {
+      // Ensure the pattern has the global flag
+      const pattern = patternMatch.pattern.global ? 
+        patternMatch.pattern : 
+        new RegExp(patternMatch.pattern.source, patternMatch.pattern.flags + 'g');
       
-      if (extracted && match[0]) {
-        // Store the translation
-        translations.push({
-          type: patternMatch.type,
-          original: match[0],
-          translated: extracted,
-          confidence: patternMatch.confidenceScore
-        });
+      const matches = Array.from(text.matchAll(pattern));
+      
+      for (const match of matches) {
+        const extracted = patternMatch.extractFn(match);
+        
+        if (extracted && match[0]) {
+          // Store the translation
+          translations.push({
+            type: patternMatch.type,
+            original: match[0],
+            translated: extracted,
+            confidence: patternMatch.confidenceScore
+          });
+        }
       }
+    } catch (error) {
+      console.warn(`Error applying pattern ${patternMatch.pattern}:`, error);
+      // Continue with other patterns even if one fails
     }
   }
   
@@ -319,4 +329,4 @@ export function improveGibberishText(text: string): string {
     (_, a, b, c, d, e, f, g, h) => ` ${a}${b}${c}${d}${e}${f}${g}${h} `);
   
   return improved.trim();
-} 
+}

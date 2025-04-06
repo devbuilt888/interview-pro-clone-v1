@@ -7,6 +7,7 @@ export default function TestPatternTranslator() {
   const [inputText, setInputText] = useState<string>('');
   const [result, setResult] = useState<any>(null);
   const [improved, setImproved] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
 
   const handleTranslate = () => {
     if (!inputText.trim()) {
@@ -14,6 +15,8 @@ export default function TestPatternTranslator() {
     }
 
     try {
+      setError(null);
+      
       // Apply the pattern translator
       const translationResult = translateGibberishPatterns(inputText);
       setResult(translationResult);
@@ -23,12 +26,23 @@ export default function TestPatternTranslator() {
       setImproved(improvedText);
     } catch (error) {
       console.error('Translation error:', error);
-      setResult({ error: error instanceof Error ? error.message : 'Unknown error' });
+      setError(error instanceof Error ? error.message : 'Unknown error translating patterns');
+      
+      // Try to still show the improved text even if the translation had an error
+      try {
+        const improvedText = improveGibberishText(inputText);
+        setImproved(improvedText);
+      } catch (secondError) {
+        console.error('Improved text error:', secondError);
+      }
     }
   };
 
   const handleExampleClick = (example: string) => {
     setInputText(example);
+    setError(null);
+    setResult(null);
+    setImproved('');
   };
 
   // Sample gibberish examples for testing
@@ -84,60 +98,65 @@ export default function TestPatternTranslator() {
         </button>
       </div>
       
-      {result && (
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-6">
+          <h3 className="font-semibold">Error</h3>
+          <p>{error}</p>
+          {improved && (
+            <div className="mt-4">
+              <p className="font-semibold">Partial Results (Improved Text)</p>
+              <pre className="mt-2 bg-white p-3 rounded border whitespace-pre-wrap">{improved}</pre>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {!error && result && (
         <div className="bg-white border rounded-lg shadow-sm p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Translation Results</h2>
           
           <div className="space-y-6">
-            {result.error ? (
-              <div className="bg-red-50 p-3 rounded border border-red-200">
-                <p className="text-red-700">{result.error}</p>
+            <div>
+              <h3 className="text-md font-medium mb-2">Improved Text (Auto-Corrected)</h3>
+              <div className="bg-green-50 p-3 rounded border border-green-200 whitespace-pre-wrap">
+                {improved || "No improvements made"}
               </div>
-            ) : (
-              <>
-                <div>
-                  <h3 className="text-md font-medium mb-2">Improved Text (Auto-Corrected)</h3>
-                  <div className="bg-green-50 p-3 rounded border border-green-200 whitespace-pre-wrap">
-                    {improved || "No improvements made"}
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-md font-medium mb-2">Detected Translations</h3>
-                  {result.translations.length > 0 ? (
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="p-2 text-left">Type</th>
-                          <th className="p-2 text-left">Original Pattern</th>
-                          <th className="p-2 text-left">Translated To</th>
-                          <th className="p-2 text-left">Confidence</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.translations.map((t: any, i: number) => (
-                          <tr key={i} className="border-t">
-                            <td className="p-2">{t.type}</td>
-                            <td className="p-2 font-mono text-xs">{t.original.substring(0, 30)}{t.original.length > 30 ? '...' : ''}</td>
-                            <td className="p-2">{t.translated}</td>
-                            <td className="p-2">{(t.confidence * 100).toFixed(0)}%</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="text-gray-500">No specific patterns translated</p>
-                  )}
-                </div>
-                
-                <div>
-                  <h3 className="text-md font-medium mb-2">Raw Translation Output</h3>
-                  <div className="bg-gray-50 p-3 rounded border whitespace-pre-wrap">
-                    {result.translatedText}
-                  </div>
-                </div>
-              </>
-            )}
+            </div>
+            
+            <div>
+              <h3 className="text-md font-medium mb-2">Detected Translations</h3>
+              {result.translations.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-left">Type</th>
+                      <th className="p-2 text-left">Original Pattern</th>
+                      <th className="p-2 text-left">Translated To</th>
+                      <th className="p-2 text-left">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.translations.map((t: any, i: number) => (
+                      <tr key={i} className="border-t">
+                        <td className="p-2">{t.type}</td>
+                        <td className="p-2 font-mono text-xs">{t.original.substring(0, 30)}{t.original.length > 30 ? '...' : ''}</td>
+                        <td className="p-2">{t.translated}</td>
+                        <td className="p-2">{(t.confidence * 100).toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-gray-500">No specific patterns translated</p>
+              )}
+            </div>
+            
+            <div>
+              <h3 className="text-md font-medium mb-2">Raw Translation Output</h3>
+              <div className="bg-gray-50 p-3 rounded border whitespace-pre-wrap">
+                {result.translatedText}
+              </div>
+            </div>
           </div>
         </div>
       )}
