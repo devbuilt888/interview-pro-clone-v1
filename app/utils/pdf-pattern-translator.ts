@@ -202,11 +202,25 @@ export function mapGibberishToSectionHeaders(text: string): Map<string, string> 
     [/A W R D S/gi, "AWARDS"]
   ];
   
-  // Apply each mapping
-  mappings.forEach(([pattern, section]) => {
-    const match = text.match(pattern);
-    if (match && match[0]) {
-      gibberishToSection.set(match[0], section);
+  // Apply each mapping - use a safer approach that doesn't rely on RegExp.prototype.global
+  mappings.forEach(([patternRegExp, section]) => {
+    try {
+      // Use exec instead of match for more consistent behavior with global flag
+      let match;
+      // Create a fresh copy of the RegExp to ensure the global flag state is reset
+      const pattern = new RegExp(patternRegExp.source, patternRegExp.flags);
+      
+      while ((match = pattern.exec(text)) !== null) {
+        if (match[0]) {
+          gibberishToSection.set(match[0], section);
+          
+          // If the pattern is not global, break after first match to avoid infinite loop
+          if (!pattern.global) break;
+        }
+      }
+    } catch (error) {
+      console.warn(`Error applying section header pattern:`, error);
+      // Continue with other patterns
     }
   });
   
@@ -269,8 +283,17 @@ export function translateGibberishPatterns(text: string): TranslationResult {
       confidence: 0.85
     });
     
-    // Replace in the text
-    translatedText = translatedText.replace(new RegExp(escapeRegExp(gibberish), 'gi'), `\n\n${sectionName}:\n`);
+    // Replace in the text - use a try/catch to handle any regex issues
+    try {
+      // Create a new RegExp with the global flag explicitly included
+      const escapedGibberish = escapeRegExp(gibberish);
+      const safePattern = new RegExp(escapedGibberish, 'gi');
+      translatedText = translatedText.replace(safePattern, `\n\n${sectionName}:\n`);
+    } catch (error) {
+      console.warn(`Error replacing section header pattern: ${gibberish}`, error);
+      // Try a simple string replace as fallback
+      translatedText = translatedText.split(gibberish).join(`\n\n${sectionName}:\n`);
+    }
   });
   
   // Apply the translations to the text (in order of confidence)
@@ -278,10 +301,16 @@ export function translateGibberishPatterns(text: string): TranslationResult {
     .sort((a, b) => b.confidence - a.confidence)
     .forEach(translation => {
       if (translation.type !== 'section_header') { // Already handled above
-        translatedText = translatedText.replace(
-          new RegExp(escapeRegExp(translation.original), 'g'),
-          translation.translated
-        );
+        try {
+          // Create a new RegExp with the global flag explicitly set
+          const escapedOriginal = escapeRegExp(translation.original);
+          const safePattern = new RegExp(escapedOriginal, 'g');
+          translatedText = translatedText.replace(safePattern, translation.translated);
+        } catch (error) {
+          console.warn(`Error replacing translation pattern: ${translation.original}`, error);
+          // Try a simple string replace as fallback
+          translatedText = translatedText.split(translation.original).join(translation.translated);
+        }
       }
     });
   

@@ -26,7 +26,13 @@ export default function TestPatternTranslator() {
       setImproved(improvedText);
     } catch (error) {
       console.error('Translation error:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error translating patterns');
+      
+      // More detailed error message for debugging
+      const errorMessage = error instanceof Error ? 
+        `${error.message}\n${error.stack || ''}` : 
+        'Unknown error translating patterns';
+      
+      setError(errorMessage);
       
       // Try to still show the improved text even if the translation had an error
       try {
@@ -34,6 +40,10 @@ export default function TestPatternTranslator() {
         setImproved(improvedText);
       } catch (secondError) {
         console.error('Improved text error:', secondError);
+        
+        // Update error message with both errors for more context
+        const secondErrorMsg = secondError instanceof Error ? secondError.message : 'Unknown secondary error';
+        setError((prevError) => `${prevError}\n\nAdditional error applying text improvements: ${secondErrorMsg}`);
       }
     }
   };
