@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { improveGibberishText } from '../../utils/pdf-pattern-translator';
+import { extractTextFromPDF as mainExtractor } from '../../utils/pdf-extractor';
 
 // Define types for PDF.js since we're using dynamic import
 interface PDFDocumentProxy {
@@ -81,7 +83,18 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using worker-free PDF.js extraction for serverless environment...');
     
-    // Use text-based extraction instead since we're having issues with the module
+    // First try using the main extraction method
+    try {
+      const extractionResult = await mainExtractor(fileData);
+      if (extractionResult && extractionResult.text && extractionResult.text.length > 0) {
+        console.log(`Using main pdf-extractor.ts with method: ${extractionResult.method}`);
+        return extractionResult.text;
+      }
+    } catch (error) {
+      console.log('Main extractor failed, falling back to local implementation');
+    }
+    
+    // If that fails, use our local fallback
     return await fallbackTextExtraction(fileData);
   } catch (error) {
     console.error('Error in worker-free extraction:', error);
@@ -94,6 +107,17 @@ async function fallbackTextExtraction(fileData: Uint8Array): Promise<string> {
   try {
     console.log('Using fallback text-based extraction...');
     const text = new TextDecoder().decode(fileData);
+    
+    // First try to improve the text using pattern translation
+    try {
+      const translatedText = improveGibberishText(text);
+      if (translatedText && translatedText.length > 100) {
+        console.log('Successfully applied pattern translation in fallback extraction');
+        return translatedText;
+      }
+    } catch (translationError) {
+      console.warn('Pattern translation failed, continuing with regular extraction', translationError);
+    }
     
     // Extract text content using multiple regex patterns for more robust extraction
     let extractedText = '';
@@ -196,7 +220,7 @@ async function fallbackTextExtraction(fileData: Uint8Array): Promise<string> {
 // Helper function to get PDF.js version information
 async function getPdfJsVersion(): Promise<string> {
   try {
-    return "Using fallback text extraction - PDF.js disabled";
+    return "Using optimized extraction with pattern translation";
   } catch (e) {
     return `Error getting version: ${e instanceof Error ? e.message : 'Unknown error'}`;
   }
@@ -217,7 +241,17 @@ async function extractTextFromPDF(fileData: Uint8Array): Promise<ExtractedPdfRes
   try {
     result.workerFreeText = await extractTextWithoutWorker(fileData);
     console.log(`Text extraction completed with ${result.workerFreeText?.length || 0} characters`);
-    result.method = 'standard';
+    
+    // Try to detect if pattern translation was used
+    if (result.workerFreeText && 
+        (result.workerFreeText.includes('EDUCATION:') || 
+         result.workerFreeText.includes('SKILLS:') || 
+         result.workerFreeText.includes('EXPERIENCE:')) &&
+        !/[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/.test(result.workerFreeText)) {
+      result.method = 'pattern-translated';
+    } else {
+      result.method = 'standard';
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     result.errors.push(`Text extraction error: ${message}`);
@@ -250,7 +284,7 @@ export async function POST(req: NextRequest) {
 
     // Log environment information
     console.log(`Node environment: ${process.env.NODE_ENV}`);
-    console.log(`Using fallback extraction`);
+    console.log(`Using enhanced extraction with pattern translation`);
 
     const arrayBuffer = await file.arrayBuffer();
     const fileData = new Uint8Array(arrayBuffer);
@@ -270,6 +304,13 @@ export async function POST(req: NextRequest) {
           used: false 
         };
 
+    // Determine how much text to show in the sample
+    // Show more text (up to 1000 characters) to provide a better preview
+    const fullText = extractionResults.workerFreeText || '';
+    const textSample = fullText.length > 1000 
+      ? fullText.substring(0, 1000) + '...' 
+      : fullText;
+
     // Return detailed diagnostic information
     return new Response(JSON.stringify({
       status: 'ok',
@@ -284,7 +325,7 @@ export async function POST(req: NextRequest) {
         worker_free_extraction: {
           success: !!extractionResults.workerFreeText,
           text_length: extractionResults.workerFreeText?.length || 0,
-          text_sample: extractionResults.workerFreeText?.substring(0, 200) + '...' || '',
+          text_sample: textSample,
           method: extractionResults.method || 'standard',
           pattern_translation: patternTranslationInfo
         },

@@ -34,7 +34,7 @@ export interface TranslationResult {
 const namePatterns: PatternMatch[] = [
   // Common pattern: Name in parentheses after specific operators
   {
-    pattern: /\/([A-Za-z]+)\s*\(\s*([A-Za-z][A-Za-z\s\.\-,']{3,})\s*\)/,
+    pattern: /\/([A-Za-z]+)\s*\(\s*([A-Za-z][A-Za-z\s\.\-,']{3,})\s*\)/g,
     confidenceScore: 0.8,
     type: 'name',
     extractFn: (match) => {
@@ -51,7 +51,7 @@ const namePatterns: PatternMatch[] = [
   
   // LinkedIn resume header name pattern
   {
-    pattern: /BT\s+\/F\d+\s+\d+(?:\.\d+)?\s+Tf\s+[\d\.\-]+\s+[\d\.\-]+\s+Td\s+\(\s*([A-Z][A-Za-z\s\.\-,']{5,})\s*\)\s+Tj\s+ET/,
+    pattern: /BT\s+\/F\d+\s+\d+(?:\.\d+)?\s+Tf\s+[\d\.\-]+\s+[\d\.\-]+\s+Td\s+\(\s*([A-Z][A-Za-z\s\.\-,']{5,})\s*\)\s+Tj\s+ET/g,
     confidenceScore: 0.9,
     type: 'name',
     extractFn: (match) => match[1]?.trim() || null
@@ -59,7 +59,7 @@ const namePatterns: PatternMatch[] = [
   
   // Pattern: Name at the beginning of the file with capitalization
   {
-    pattern: /^(?:\([^)]*\)\s*)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})(?:\s|\n|$)/m,
+    pattern: /^(?:\([^)]*\)\s*)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})(?:\s|\n|$)/gm,
     confidenceScore: 0.7,
     type: 'name',
     extractFn: (match) => {
@@ -79,7 +79,7 @@ const namePatterns: PatternMatch[] = [
 const jobTitlePatterns: PatternMatch[] = [
   // Common job title pattern
   {
-    pattern: /\/(Title|Role|Position|JobTitle)\s*\(\s*([A-Za-z][A-Za-z\s\.\-&,']{3,})\s*\)/i,
+    pattern: /\/(Title|Role|Position|JobTitle)\s*\(\s*([A-Za-z][A-Za-z\s\.\-&,']{3,})\s*\)/gi,
     confidenceScore: 0.85,
     type: 'job_title',
     extractFn: (match) => match[2]?.trim() || null
@@ -87,7 +87,7 @@ const jobTitlePatterns: PatternMatch[] = [
   
   // Job title after name pattern
   {
-    pattern: /BT\s+\/F\d+\s+\d+(?:\.\d+)?\s+Tf\s+[\d\.\-]+\s+[\d\.\-]+\s+Td\s+\(\s*([A-Za-z][A-Za-z\s\.\-&|,']{5,})\s*\)\s+Tj\s+ET/,
+    pattern: /BT\s+\/F\d+\s+\d+(?:\.\d+)?\s+Tf\s+[\d\.\-]+\s+[\d\.\-]+\s+Td\s+\(\s*([A-Za-z][A-Za-z\s\.\-&|,']{5,})\s*\)\s+Tj\s+ET/g,
     confidenceScore: 0.7,
     type: 'job_title',
     extractFn: (match) => {
@@ -117,7 +117,7 @@ const jobTitlePatterns: PatternMatch[] = [
   
   // Job title with common prefixes
   {
-    pattern: /(?:^|\n|\s)((?:Senior|Junior|Lead|Staff|Principal|Chief|Head|VP|Director of|Manager of)[\s\-]+[A-Z][A-Za-z\s\-&]+)(?:\n|\s|$)/,
+    pattern: /(?:^|\n|\s)((?:Senior|Junior|Lead|Staff|Principal|Chief|Head|VP|Director of|Manager of)[\s\-]+[A-Z][A-Za-z\s\-&]+)(?:\n|\s|$)/g,
     confidenceScore: 0.75,
     type: 'job_title',
     extractFn: (match) => match[1]?.trim() || null
@@ -130,7 +130,7 @@ const jobTitlePatterns: PatternMatch[] = [
 const companyPatterns: PatternMatch[] = [
   // Company after specific operators
   {
-    pattern: /\/(Company|Employer|Organization)\s*\(\s*([A-Za-z][A-Za-z\s\.\-&,']{3,})\s*\)/i,
+    pattern: /\/(Company|Employer|Organization)\s*\(\s*([A-Za-z][A-Za-z\s\.\-&,']{3,})\s*\)/gi,
     confidenceScore: 0.85,
     type: 'company',
     extractFn: (match) => match[2]?.trim() || null
@@ -138,7 +138,7 @@ const companyPatterns: PatternMatch[] = [
   
   // Company with Inc, LLC, Ltd patterns
   {
-    pattern: /([A-Z][A-Za-z\s\.\-&]+(?:\s+(?:Inc|LLC|Ltd|Corp|Corporation|Company|Co|GmbH|SA|SAS|Limited)))/,
+    pattern: /([A-Z][A-Za-z\s\.\-&]+(?:\s+(?:Inc|LLC|Ltd|Corp|Corporation|Company|Co|GmbH|SA|SAS|Limited)))/g,
     confidenceScore: 0.8,
     type: 'company',
     extractFn: (match) => match[1]?.trim() || null
@@ -151,7 +151,7 @@ const companyPatterns: PatternMatch[] = [
 const sectionHeaderPatterns: PatternMatch[] = [
   // Section headers with specific operators
   {
-    pattern: /\/(T|Tag|Topic|Heading|Section)\s*\(\s*(Summary|Experience|Education|Skills|Languages|Interests|Projects|Certifications|Volunteer|Awards|Publications)\s*\)/i,
+    pattern: /\/(T|Tag|Topic|Heading|Section)\s*\(\s*(Summary|Experience|Education|Skills|Languages|Interests|Projects|Certifications|Volunteer|Awards|Publications)\s*\)/gi,
     confidenceScore: 0.9,
     type: 'section_header',
     extractFn: (match) => match[2]?.trim() || null
@@ -159,7 +159,7 @@ const sectionHeaderPatterns: PatternMatch[] = [
   
   // Capitalized section headers
   {
-    pattern: /(?:^|\n)([A-Z][A-Z\s]{5,})(?:\n|:)/,
+    pattern: /(?:^|\n)([A-Z][A-Z\s]{5,})(?:\n|:)/g,
     confidenceScore: 0.7,
     type: 'section_header',
     extractFn: (match) => {

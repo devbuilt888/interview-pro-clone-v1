@@ -7,6 +7,7 @@ export default function TestPdfExtraction() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showFullText, setShowFullText] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -32,6 +33,7 @@ export default function TestPdfExtraction() {
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setShowFullText(false);
 
     try {
       const formData = new FormData();
@@ -55,6 +57,25 @@ export default function TestPdfExtraction() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Function to toggle between preview and full text
+  const toggleFullText = () => {
+    setShowFullText(!showFullText);
+  };
+
+  // Format the displayed text
+  const getDisplayText = () => {
+    if (!result) return '';
+    
+    const fullText = result.diagnostics.worker_free_extraction.text_sample;
+    
+    // If we're showing the preview and the text is long, truncate it
+    if (!showFullText && fullText.length > 300) {
+      return fullText.substring(0, 300) + '...';
+    }
+    
+    return fullText;
   };
 
   return (
@@ -131,10 +152,18 @@ export default function TestPdfExtraction() {
                 
                 {result.diagnostics.worker_free_extraction.success && (
                   <div className="mt-2">
-                    <p className="font-medium">Text Sample:</p>
-                    <p className="text-sm mt-1 bg-white p-2 rounded border whitespace-pre-wrap">
-                      {result.diagnostics.worker_free_extraction.text_sample}
-                    </p>
+                    <div className="flex justify-between items-center">
+                      <p className="font-medium">Extracted Text:</p>
+                      <button 
+                        onClick={toggleFullText}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        {showFullText ? 'Show Preview' : 'Show Full Text'}
+                      </button>
+                    </div>
+                    <pre className="text-sm mt-1 bg-white p-4 rounded border whitespace-pre-wrap overflow-auto max-h-96">
+                      {getDisplayText()}
+                    </pre>
                   </div>
                 )}
               </div>
