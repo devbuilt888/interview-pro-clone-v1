@@ -7,6 +7,7 @@
 
 import { PDFDocumentProxy, PDFPageProxy, TextContent, TextItem } from './pdf-types';
 import { ExtractionResult } from './resume-types';
+import { improveGibberishText, translateGibberishPatterns } from './pdf-pattern-translator';
 
 // Cache for PDF.js worker - keeping a reference helps with cold starts
 let pdfWorkerLoaded = false;
@@ -628,6 +629,18 @@ function processTextFragments(fragments: string[]): string {
 function extractTextFromDifficultPDF(rawText: string): string {
   console.log('Using specialized extraction for difficult PDF with gibberish');
   
+  // Apply pattern translation to improve gibberish text
+  const improvedText = improveGibberishText(rawText);
+  
+  // If we got reasonable text after improvement, return it
+  if (improvedText && improvedText.length > 100 && 
+      (improvedText.match(/[a-zA-Z]{3,}/g) || []).length > 20) {
+    console.log('Successfully improved gibberish text using pattern translation');
+    return improvedText;
+  }
+  
+  // Otherwise, continue with the original algorithm...
+  
   // Look for actual English words in the mess
   const wordPattern = /\b[a-zA-Z]{3,}[a-zA-Z\s]*\b/g;
   const words = rawText.match(wordPattern) || [];
@@ -1032,7 +1045,7 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
     // Try extraction - worker-free will auto-use fallback in production
     console.log('Starting PDF text extraction...');
     let extractedText = '';
-    let method: 'worker-free' | 'fallback' | 'fallback-enhanced' = 'worker-free'; 
+    let method: 'worker-free' | 'fallback' | 'fallback-enhanced' | 'pattern-translated' = 'worker-free'; 
     
     try {
       extractedText = await extractTextWithoutWorker(fileData);
@@ -1053,10 +1066,24 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
           /[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/.test(extractedText.slice(0, 100)) &&
           extractedText.length > 0) {
         console.log('Detected gibberish in extracted text, using enhanced extraction');
-        // Try the fallback with more aggressive cleaning for gibberish texts
+        
+        // Try improved pattern translation first
         const rawText = new TextDecoder().decode(fileData);
-        extractedText = extractTextFromDifficultPDF(rawText);
-        method = 'fallback-enhanced';
+        const translatedText = improveGibberishText(rawText);
+        
+        // If translation produced substantial text, use it
+        if (translatedText && 
+            translatedText.length > 100 && 
+            (translatedText.match(/[a-zA-Z]{3,}/g) || []).length > 20) {
+          extractedText = translatedText;
+          method = 'pattern-translated';
+          console.log('Successfully applied pattern translation to gibberish text');
+        } else {
+          // Otherwise fall back to the difficult PDF extraction
+          extractedText = extractTextFromDifficultPDF(rawText);
+          method = 'fallback-enhanced';
+        }
+        
         warnings.push('Used enhanced extraction due to detected gibberish');
       }
     } catch (error) {
@@ -1074,7 +1101,20 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
       console.warn('Extraction returned insufficient text');
       warnings.push('Extraction returned insufficient text');
       
-      // If both methods failed to get enough text, throw error
+      // If both methods failed to get enough text, try pattern translation as last resort
+      if (extractedText.trim().length < 50) {
+        console.log('Trying pattern translation as last resort for minimal text');
+        const rawText = new TextDecoder().decode(fileData);
+        const translatedText = improveGibberishText(rawText);
+        
+        if (translatedText && translatedText.length > extractedText.length) {
+          extractedText = translatedText;
+          method = 'pattern-translated';
+          console.log('Pattern translation improved minimal text extraction');
+        }
+      }
+      
+      // If still no usable text, throw error
       if (extractedText.trim().length === 0) {
         throw new Error('Failed to extract any usable text from PDF');
       }
@@ -1083,7 +1123,7 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
     // Return the results
     return {
       text: extractedText,
-      method: method as 'worker-free' | 'fallback' | 'fallback-enhanced', // Type cast to maintain compatibility
+      method: method as 'worker-free' | 'fallback' | 'fallback-enhanced' | 'pattern-translated',
       warnings: warnings.length > 0 ? warnings : undefined
     };
   } catch (error) {

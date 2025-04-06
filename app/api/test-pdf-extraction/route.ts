@@ -32,6 +32,16 @@ interface TextItem {
   [key: string]: any;
 }
 
+// Add extraction result interface
+interface ExtractedPdfResult {
+  workerFreeText: string | null;
+  workerBasedText: string | null;
+  version: string;
+  errors: string[];
+  warnings: string[];
+  method?: string;
+}
+
 // Helper function to merge text content with better formatting
 function mergeTextContent(textContent: TextContent) {
   if (!textContent.items || textContent.items.length === 0) {
@@ -193,23 +203,21 @@ async function getPdfJsVersion(): Promise<string> {
 }
 
 // Main extraction function that tries multiple methods
-async function extractTextFromPDF(fileData: Uint8Array): Promise<{
-  workerFreeText: string | null;
-  workerBasedText: string | null;
-  version: string;
-  errors: string[];
-}> {
-  const result = {
-    workerFreeText: null as string | null,
-    workerBasedText: null as string | null,
+async function extractTextFromPDF(fileData: Uint8Array): Promise<ExtractedPdfResult> {
+  const result: ExtractedPdfResult = {
+    workerFreeText: null,
+    workerBasedText: null,
     version: await getPdfJsVersion(),
-    errors: [] as string[]
+    errors: [],
+    warnings: [],
+    method: undefined
   };
   
   // Test worker-free extraction (primary for serverless)
   try {
     result.workerFreeText = await extractTextWithoutWorker(fileData);
     console.log(`Text extraction completed with ${result.workerFreeText?.length || 0} characters`);
+    result.method = 'standard';
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     result.errors.push(`Text extraction error: ${message}`);
@@ -252,6 +260,16 @@ export async function POST(req: NextRequest) {
     console.log('Testing text extraction methods...');
     const extractionResults = await extractTextFromPDF(fileData);
 
+    // Get information about pattern translation if used
+    const patternTranslationInfo = extractionResults.method === 'pattern-translated' 
+      ? {
+          used: true,
+          description: "Enhanced pattern translation was applied to convert gibberish to meaningful text."
+        }
+      : { 
+          used: false 
+        };
+
     // Return detailed diagnostic information
     return new Response(JSON.stringify({
       status: 'ok',
@@ -266,14 +284,17 @@ export async function POST(req: NextRequest) {
         worker_free_extraction: {
           success: !!extractionResults.workerFreeText,
           text_length: extractionResults.workerFreeText?.length || 0,
-          text_sample: extractionResults.workerFreeText?.substring(0, 200) + '...' || ''
+          text_sample: extractionResults.workerFreeText?.substring(0, 200) + '...' || '',
+          method: extractionResults.method || 'standard',
+          pattern_translation: patternTranslationInfo
         },
         worker_based_extraction: {
           success: false,
           text_length: 0,
           text_sample: "Worker-based extraction disabled to avoid build issues"
         },
-        errors: extractionResults.errors
+        errors: extractionResults.errors,
+        warnings: extractionResults.warnings
       }
     }), {
       status: 200,

@@ -117,6 +117,18 @@ export default function TestPdfExtraction() {
               <div className={`p-3 rounded ${result.diagnostics.worker_free_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
                 <p>Status: {result.diagnostics.worker_free_extraction.success ? 'Success' : 'Failed'}</p>
                 <p>Characters Extracted: {result.diagnostics.worker_free_extraction.text_length}</p>
+                <p>Method: {result.diagnostics.worker_free_extraction.method || 'standard'}</p>
+                
+                {result.diagnostics.worker_free_extraction.pattern_translation && 
+                 result.diagnostics.worker_free_extraction.pattern_translation.used && (
+                  <div className="mt-2 bg-blue-50 p-2 rounded">
+                    <p className="font-medium text-blue-800">Pattern Translation Applied</p>
+                    <p className="text-sm text-blue-700">
+                      {result.diagnostics.worker_free_extraction.pattern_translation.description}
+                    </p>
+                  </div>
+                )}
+                
                 {result.diagnostics.worker_free_extraction.success && (
                   <div className="mt-2">
                     <p className="font-medium">Text Sample:</p>
@@ -143,6 +155,19 @@ export default function TestPdfExtraction() {
                 )}
               </div>
             </div>
+            
+            {result.diagnostics.warnings && result.diagnostics.warnings.length > 0 && (
+              <div>
+                <h3 className="text-md font-medium mb-2">Warnings</h3>
+                <div className="bg-yellow-50 p-3 rounded">
+                  <ul className="list-disc pl-5 space-y-1">
+                    {result.diagnostics.warnings.map((warning: string, i: number) => (
+                      <li key={i} className="text-yellow-800">{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
             
             {result.diagnostics.errors && result.diagnostics.errors.length > 0 && (
               <div>

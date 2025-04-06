@@ -75,7 +75,7 @@ export interface ExtractionResult {
   /**
    * Method used for extraction
    */
-  method: 'worker-free' | 'standard' | 'fallback' | 'fallback-enhanced';
+  method: 'worker-free' | 'standard' | 'fallback' | 'fallback-enhanced' | 'pattern-translated';
   
   /**
    * Any warnings that occurred during extraction
