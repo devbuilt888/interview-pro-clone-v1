@@ -89,6 +89,19 @@ export default function TestPdfExtraction() {
     <div className="container mx-auto p-4 max-w-4xl">
       <h1 className="text-2xl font-bold mb-6">Test PDF Text Extraction</h1>
       
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6">
+        <h2 className="text-lg font-semibold text-blue-700 mb-2">New Implementation: Direct Puppeteer</h2>
+        <p className="mb-2">We've implemented a more reliable PDF extraction approach using direct Puppeteer instead of pdf-puppeteer to avoid compatibility issues:</p>
+        <ul className="list-disc ml-6 mb-3 text-blue-800">
+          <li>Converts PDF first page to high-quality image</li>
+          <li>Uses GPT-4o Vision for accurate text extraction</li>
+          <li>Resolves parsing issues with private class fields</li>
+        </ul>
+        <a href="/test-pdf-extraction/puppeteer-test" className="text-blue-600 hover:text-blue-800 font-medium underline">
+          Try the Puppeteer-based Extraction
+        </a>
+      </div>
+      
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <div className="mb-4">
           <label className="block text-gray-700 mb-2">Upload PDF File</label>

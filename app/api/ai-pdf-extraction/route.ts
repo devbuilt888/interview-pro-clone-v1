@@ -1,13 +1,93 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import puppeteer from 'puppeteer';
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// PDF size limit in bytes (20MB)
+const MAX_PDF_SIZE = 20 * 1024 * 1024;
+
 /**
- * API endpoint to extract text from PDFs using OpenAI GPT-4 Vision
+ * Convert PDF to image using puppeteer directly
+ */
+async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
+  try {
+    console.log('Starting PDF conversion with puppeteer...');
+    
+    // Create a temporary directory for the PDF file
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
+    const pdfPath = path.join(tempDir, 'document.pdf');
+    const outputPath = path.join(tempDir, 'page.png');
+    
+    // Write the PDF buffer to a file
+    fs.writeFileSync(pdfPath, pdfBuffer);
+    
+    // Launch a headless browser
+    const browser = await puppeteer.launch({ 
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    try {
+      // Create a new page
+      const page = await browser.newPage();
+      
+      // Set viewport size
+      await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 });
+      
+      // Navigate to the PDF file using file:// protocol
+      await page.goto(`file://${pdfPath}`, {
+        waitUntil: 'networkidle0',
+        timeout: 60000
+      });
+      
+      // Wait a moment for PDF to render
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Take a screenshot
+      await page.screenshot({ path: outputPath, fullPage: true });
+      
+      // Close the browser
+      await browser.close();
+      
+      // Read the generated image
+      if (fs.existsSync(outputPath)) {
+        const imageBuffer = fs.readFileSync(outputPath);
+        const base64Image = imageBuffer.toString('base64');
+        
+        // Clean up temporary files
+        try {
+          fs.unlinkSync(pdfPath);
+          fs.unlinkSync(outputPath);
+          fs.rmdirSync(tempDir);
+        } catch (cleanupError) {
+          console.error('Error cleaning up temporary files:', cleanupError);
+        }
+        
+        return base64Image;
+      } else {
+        throw new Error('Image file was not created');
+      }
+    } finally {
+      // Ensure browser is closed even if an error occurs
+      if (browser) {
+        await browser.close().catch(err => console.error('Error closing browser:', err));
+      }
+    }
+  } catch (error) {
+    console.error('Error converting PDF to image:', error);
+    throw error;
+  }
+}
+
+/**
+ * API endpoint to extract text from PDFs using OpenAI GPT-4o Vision
  */
 export async function POST(request: NextRequest) {
   try {
@@ -40,6 +120,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check file size
+    if (file.size > MAX_PDF_SIZE) {
+      return NextResponse.json(
+        { error: `PDF file too large (${(file.size / (1024 * 1024)).toFixed(2)}MB). Maximum size is 20MB.` },
+        { status: 400 }
+      );
+    }
+
     // Check for OpenAI API key
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
@@ -50,33 +138,39 @@ export async function POST(request: NextRequest) {
 
     // Get file contents as array buffer
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const pdfBuffer = Buffer.from(arrayBuffer);
     
-    // Convert to base64 for OpenAI API
-    const base64Pdf = buffer.toString('base64');
+    console.log('Converting PDF to image using puppeteer...');
     
-    // Send to OpenAI GPT-4 Vision
     try {
-      console.log('Sending PDF to OpenAI GPT-4 Vision for text extraction...');
+      // Convert PDF to image
+      const imageBase64 = await convertPdfToImage(pdfBuffer);
+      
+      console.log('Successfully converted PDF to image');
+      
+      // Create content array for OpenAI API
+      const content: any[] = [
+        { 
+          type: "text", 
+          text: "Extract all text content from this PDF page image. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: `data:image/png;base64,${imageBase64}`,
+            detail: "high"
+          }
+        }
+      ];
+      
+      console.log('Sending PDF page image to OpenAI GPT-4o for text extraction...');
       
       const response = await openai.chat.completions.create({
-        model: "gpt-4-vision-preview",
+        model: "gpt-4o",
         messages: [
           {
             role: "user",
-            content: [
-              { 
-                type: "text", 
-                text: "Extract all text from this PDF resume, preserving formatting where possible. Maintain section headers, bullet points, and organizational structure. Focus on extracting name, contact info, work experience, skills, and education." 
-              },
-              { 
-                type: "image_url", 
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`,
-                  detail: "high"
-                }
-              }
-            ]
+            content: content
           }
         ],
         max_tokens: 4096
@@ -91,21 +185,48 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      console.log(`GPT-4 Vision extracted ${extractedText.length} characters`);
+      console.log(`GPT-4o extracted ${extractedText.length} characters from the PDF page`);
       
       return NextResponse.json({
-        message: 'Text extracted successfully with GPT-4 Vision',
+        message: 'Text extracted successfully with GPT-4o',
         text: extractedText,
         charCount: extractedText.length,
-        method: 'gpt4-vision'
+        method: 'gpt4-vision',
+        pageCount: 1
       });
       
-    } catch (aiError) {
-      console.error('Error calling OpenAI API:', aiError);
+    } catch (aiError: any) {
+      console.error('Error processing PDF or calling OpenAI API:', aiError);
+      
+      // Log detailed error information
+      if (aiError.response) {
+        console.error('OpenAI API Error Response:', JSON.stringify({
+          status: aiError.response.status,
+          statusText: aiError.response.statusText,
+          data: aiError.response.data
+        }, null, 2));
+      }
+      
+      let errorMessage = 'Failed to process PDF with GPT-4o';
+      let details = aiError instanceof Error ? aiError.message : String(aiError);
+      
+      // Check for common OpenAI API errors
+      if (aiError.message?.includes('billing')) {
+        errorMessage = 'OpenAI API billing issue. Please check your billing status.';
+      } else if (aiError.message?.includes('rate limit')) {
+        errorMessage = 'OpenAI API rate limit exceeded. Please try again later.';
+      } else if (aiError.message?.includes('invalid_api_key')) {
+        errorMessage = 'Invalid OpenAI API key. Please check your API key configuration.';
+      } else if (aiError.message?.includes('content_policy')) {
+        errorMessage = 'The PDF content violates OpenAI content policy.';
+      } else if (aiError.message?.includes('invalid_image_format') || aiError.message?.includes('Invalid MIME type')) {
+        errorMessage = 'Error converting PDF to image format. Try with a different PDF file.';
+      }
+      
       return NextResponse.json(
         { 
-          error: 'Failed to process PDF with GPT-4 Vision', 
-          details: aiError instanceof Error ? aiError.message : String(aiError) 
+          error: errorMessage, 
+          details: details
         },
         { status: 500 }
       );
