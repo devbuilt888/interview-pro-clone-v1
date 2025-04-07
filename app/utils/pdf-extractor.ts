@@ -265,6 +265,14 @@ export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtract
     console.log('Using enhanced fallback text extraction with no truncation...');
     const text = new TextDecoder().decode(fileData);
     
+    // Check if we're dealing with raw PDF data and need special handling
+    const isRawPDFData = text.startsWith("%PDF-") || text.includes("endobj") || text.includes("stream");
+    
+    if (isRawPDFData) {
+      console.log('Detected raw PDF data - using special extraction for PDF syntax');
+      return extractTextFromRawPDF(text);
+    }
+    
     // First try to improve the text using pattern translation
     try {
       const translatedText = improveGibberishText(text);
@@ -418,40 +426,176 @@ export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtract
 }
 
 /**
- * Clean up extracted text to remove gibberish and improve structure
+ * Special extraction function for raw PDF data
+ * Extracts text from PDF syntax by focusing on text operators
  */
-function cleanupExtractedText(text: string): string {
-  if (!text) return '';
+function extractTextFromRawPDF(rawPDF: string): string {
+  console.log('Using specialized extraction for raw PDF data');
   
-  // Try to improve the text using pattern translation first
-  try {
-    const translatedText = improveGibberishText(text);
-    if (translatedText && translatedText.length > text.length * 0.8) {
-      return translatedText;
+  // Create a filter function to remove PDF syntax from results
+  const isPDFSyntax = (str: string) => {
+    return /(%PDF|endobj|stream|endstream|xref|startxref|\d+ \d+ obj|\d+ \d+ R|\/Type|\/Pages|\/Contents|\/Resources|\/MediaBox|\/Font|\/XObject|\/ExtGState)/i.test(str);
+  };
+  
+  // Array to collect all extracted text fragments
+  const extractedFragments: string[] = [];
+  
+  // 1. Extract text from parentheses (common in PDF text operators)
+  const extractParenthesesContent = () => {
+    const parenthesesMatches = rawPDF.match(/\(([^)]{3,})\)/g) || [];
+    
+    const extracted = parenthesesMatches
+      .map(match => match.slice(1, -1)) // Remove parentheses
+      .filter(content => 
+        // Keep only strings that look like actual text
+        content.length > 3 && 
+        /[A-Za-z]{2,}/.test(content) && // Has at least 2 letters
+        !/^[\d\s.,-]+$/.test(content) && // Not just numbers and separators
+        !isPDFSyntax(content) // Not PDF syntax
+      )
+      .join(' ')
+      .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))) // Convert octal escapes
+      .replace(/\\/g, '') // Remove escape characters
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+    
+    if (extracted.length > 0) {
+      extractedFragments.push(extracted);
     }
-  } catch (e) {
-    console.warn('Pattern translation during cleanup failed:', e);
+  };
+  
+  // 2. Extract text from BT/ET blocks (text operators)
+  const extractBTETBlocks = () => {
+    const btEtBlocks = rawPDF.match(/BT[\s\S]*?ET/g) || [];
+    
+    if (btEtBlocks.length === 0) return;
+    
+    const textFromBlocks = btEtBlocks
+      .map(block => {
+        // Find all text content within the BT/ET block
+        const textMatches = block.match(/\(([^)]+)\)/g) || [];
+        return textMatches
+          .map(t => t.slice(1, -1)) // Remove parentheses
+          .filter(t => 
+            t.length > 2 && 
+            /[A-Za-z]{2,}/.test(t) && 
+            !isPDFSyntax(t)
+          )
+          .join(' ');
+      })
+      .filter(blockText => blockText.length > 0)
+      .join('\n');
+    
+    if (textFromBlocks.length > 0) {
+      extractedFragments.push(textFromBlocks);
+    }
+  };
+  
+  // 3. Extract text from TJ arrays (complex text placement)
+  const extractTJArrays = () => {
+    const tjMatches = rawPDF.match(/\[([^\]]+)\]\s*TJ/g) || [];
+    if (tjMatches.length === 0) return;
+    
+    const textFromTJ = tjMatches
+      .map(match => {
+        // Extract all strings inside parentheses within TJ arrays
+        const parenthesesContent = match.match(/\(([^)]+)\)/g) || [];
+        return parenthesesContent
+          .map(pc => pc.slice(1, -1)) // Remove parentheses
+          .filter(t => 
+            t.length > 2 && 
+            /[A-Za-z]{2,}/.test(t) && 
+            !isPDFSyntax(t)
+          )
+          .join(' ');
+      })
+      .filter(content => content.length > 0)
+      .join(' ');
+    
+    if (textFromTJ.length > 0) {
+      extractedFragments.push(textFromTJ);
+    }
+  };
+  
+  // Extract job titles that might be in the document
+  const extractJobTitles = () => {
+    const jobTitleKeywords = [
+      'Senior', 'Lead', 'Software', 'Developer', 'Engineer', 'Full-stack',
+      'Front-end', 'Back-end', 'React', 'Angular', 'Vue', 'Node', 'Python',
+      'Java', 'C\\+\\+', 'Architect', 'Manager', 'Director', 'VP', 'Head',
+      'Principal', 'Staff', 'Technical', 'Designer'
+    ];
+    
+    const titleRegex = new RegExp(`(?:${jobTitleKeywords.join('|')})\\s+[A-Za-z\\s]{2,30}(?:Developer|Engineer|Architect|Designer)`, 'g');
+    const titleMatches = rawPDF.match(titleRegex) || [];
+    
+    if (titleMatches.length > 0) {
+      const titles = titleMatches
+        .filter(t => !isPDFSyntax(t))
+        .join('\n');
+      
+      if (titles.length > 0) {
+        extractedFragments.push(titles);
+      }
+    }
+  };
+  
+  // Run all extraction methods
+  extractParenthesesContent();
+  extractBTETBlocks();
+  extractTJArrays();
+  extractJobTitles();
+  
+  // Combine all extracted text
+  if (extractedFragments.length === 0) {
+    console.warn('Could not extract any readable text from raw PDF data');
+    return "Could not extract readable text from this PDF. The file may contain scanned images or be corrupt.";
   }
   
+  // Join all fragments and clean up
+  const combinedText = extractedFragments.join('\n\n');
+  
+  return cleanupExtractedText(combinedText);
+}
+
+/**
+ * Cleans up extracted text by removing garbage characters and formatting issues
+ */
+function cleanupExtractedText(text: string): string {
+  if (!text || text.length === 0) return "";
+  
   return text
-    // Remove non-printable and control characters
-    .replace(/[^\x20-\x7E\r\n]/g, ' ')
-    
-    // Handle common PDF artifacts
-    .replace(/[`~@#$%^&*_=+|<>{}[\]]/g, ' ')
-    
-    // Format email addresses
-    .replace(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi, '\nEmail: $1\n')
-    
-    // Format URLs
-    .replace(/(https?:\/\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]+)/gi, '\nWebsite: $1\n')
-    
-    // Remove consecutive spaces
+    // Convert octal escapes that are common in PDFs
+    .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)))
+    // Remove PDF-specific escape sequences
+    .replace(/\\[\\'rnt]/g, match => {
+      if (match === '\\r') return '\r';
+      if (match === '\\n') return '\n';
+      if (match === '\\t') return '\t';
+      if (match === "\\'") return "'";
+      if (match === '\\"') return '"';
+      return '';
+    })
+    // Remove remaining escape characters
+    .replace(/\\\\/g, '\\')
+    // Remove PDF operators often mixed with text
+    .replace(/(\s|^)(Tj|TJ|Tf|Td|TD|T\*|Tm|Tc|Tw|Tz|TL|Ts|BT|ET|cm|gs|re|f|q|Q|j|J|w|M|d|ri|sh)(\s|$)/g, ' ')
+    // Normalize whitespace
     .replace(/\s+/g, ' ')
-    
-    // Clean up line breaks
+    // Fix common PDF formatting issues
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // Add space between lowercase and uppercase (camelCase fix)
+    // Remove control characters
+    .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Remove isolated single characters that are likely noise
+    .replace(/(\s|^)([a-zA-Z])(\s|$)/g, ' ')
+    // Remove empty parentheses and brackets that might remain
+    .replace(/\(\s*\)|\[\s*\]/g, '')
+    // Remove duplicated words
+    .replace(/\b(\w+)(\s+\1\b)+/g, '$1')
+    // Fix spacing after periods, commas, etc.
+    .replace(/([.,:;!?])([a-zA-Z])/g, '$1 $2')
+    // Remove too many consecutive newlines
     .replace(/\n{3,}/g, '\n\n')
-    
     .trim();
 }
 

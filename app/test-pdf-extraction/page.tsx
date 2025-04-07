@@ -1,39 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 export default function TestPdfExtraction() {
   const [file, setFile] = useState<File | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [showFullText, setShowFullText] = useState(true);
+  const [extractedText, setExtractedText] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [characterCount, setCharacterCount] = useState<number>(0);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setFile(e.target.files[0]);
-      setResult(null);
-      setError(null);
+      // Reset states when a new file is selected
+      setExtractedText('');
+      setErrorMessage('');
+      setCharacterCount(0);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleExtract = async () => {
     if (!file) {
-      setError('Please select a PDF file');
+      setErrorMessage('Please select a PDF file first.');
       return;
     }
 
     if (file.type !== 'application/pdf') {
-      setError('Please select a valid PDF file');
+      setErrorMessage('Only PDF files are supported.');
       return;
     }
 
+    // Reset states
+    setExtractedText('');
+    setErrorMessage('');
     setIsLoading(true);
-    setError(null);
-    setResult(null);
-    setShowFullText(true);
 
     try {
       const formData = new FormData();
@@ -44,197 +44,76 @@ export default function TestPdfExtraction() {
         body: formData,
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to extract text from PDF');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to extract text from PDF');
       }
 
-      setResult(data);
-    } catch (err) {
-      console.error('Error testing PDF extraction:', err);
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      const data = await response.json();
+      
+      // Handle the new simplified response format
+      if (data.text) {
+        setExtractedText(data.text);
+        setCharacterCount(data.charCount || data.text.length);
+      } else {
+        setErrorMessage('No text was extracted from the PDF.');
+      }
+    } catch (error) {
+      console.error('Error extracting text:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'An error occurred during extraction');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Function to toggle between preview and full text
-  const toggleFullText = () => {
-    setShowFullText(!showFullText);
-  };
-
-  // Format the displayed text
-  const getDisplayText = () => {
-    if (!result) return '';
-    
-    const fullText = result.diagnostics.worker_free_extraction.text_sample;
-    
-    // If we're showing the preview and the text is long, truncate it
-    if (!showFullText && fullText.length > 300) {
-      return fullText.substring(0, 300) + '...';
-    }
-    
-    return fullText;
-  };
-
-  // Calculate text length for display
-  const getTextLength = () => {
-    if (!result) return 0;
-    return result.diagnostics.worker_free_extraction.text_length;
-  };
-
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-2xl font-bold mb-6">PDF.js Extraction Test</h1>
+    <div className="container mx-auto p-4 max-w-4xl">
+      <h1 className="text-2xl font-bold mb-6">Test PDF Text Extraction</h1>
       
-      <div className="bg-gray-50 p-6 rounded-lg shadow-sm border mb-6">
-        <h2 className="text-lg font-semibold mb-4">Upload PDF for Testing</h2>
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2">Upload PDF File</label>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-md file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100"
+          />
+        </div>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block mb-2 text-sm font-medium">Select PDF File</label>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={handleFileChange}
-              className="block w-full text-sm border border-gray-300 rounded-lg cursor-pointer bg-white p-2"
-            />
-            {file && (
-              <p className="mt-2 text-sm text-gray-600">
-                Selected: {file.name} ({Math.round(file.size / 1024)} KB)
-              </p>
-            )}
-          </div>
-          
-          <button
-            type="submit"
-            disabled={!file || isLoading}
-            className={`py-2 px-4 rounded-lg text-white ${
-              !file || isLoading ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {isLoading ? 'Testing...' : 'Test PDF Extraction'}
-          </button>
-        </form>
+        <button
+          onClick={handleExtract}
+          disabled={!file || isLoading}
+          className={`py-2 px-4 rounded-md text-white font-medium ${
+            !file || isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {isLoading ? 'Extracting...' : 'Extract Text'}
+        </button>
       </div>
       
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-6">
-          <h3 className="font-semibold">Error</h3>
-          <p>{error}</p>
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
+          {errorMessage}
         </div>
       )}
       
-      {result && (
-        <div className="bg-white border rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold mb-4">Test Results</h2>
-          
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-md font-medium mb-2">Environment</h3>
-              <div className="bg-gray-50 p-3 rounded">
-                <p>Node Environment: {result.diagnostics.environment}</p>
-                <p>PDF.js Version: {result.diagnostics.pdfjs_version}</p>
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-md font-medium mb-2">Worker-Free Extraction (Serverless Optimized)</h3>
-              <div className={`p-3 rounded ${result.diagnostics.worker_free_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
-                <p>Status: {result.diagnostics.worker_free_extraction.success ? 'Success' : 'Failed'}</p>
-                <p>Characters Extracted: {getTextLength()}</p>
-                <p>Method: {result.diagnostics.worker_free_extraction.method || 'standard'}</p>
-                
-                {result.diagnostics.worker_free_extraction.pattern_translation && 
-                 result.diagnostics.worker_free_extraction.pattern_translation.used && (
-                  <div className="mt-2 bg-blue-50 p-2 rounded">
-                    <p className="font-medium text-blue-800">Pattern Translation Applied</p>
-                    <p className="text-sm text-blue-700">
-                      {result.diagnostics.worker_free_extraction.pattern_translation.description}
-                    </p>
-                  </div>
-                )}
-                
-                {result.diagnostics.worker_free_extraction.success && (
-                  <div className="mt-4">
-                    <div className="flex justify-between items-center">
-                      <p className="font-medium">Extracted Text:</p>
-                      <button 
-                        onClick={toggleFullText}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        {showFullText ? 'Show Preview' : 'Show Full Text'}
-                      </button>
-                    </div>
-                    <div className="mt-2 border rounded">
-                      <div className="flex justify-between items-center px-3 py-2 bg-gray-50 border-b">
-                        <span className="text-sm text-gray-700">
-                          Showing {showFullText ? 'complete' : 'preview of'} text ({getTextLength()} characters)
-                        </span>
-                        {getTextLength() > 500 && (
-                          <button
-                            onClick={() => {
-                              // Copy text to clipboard
-                              navigator.clipboard.writeText(getDisplayText());
-                              alert('Text copied to clipboard!');
-                            }}
-                            className="text-xs px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded"
-                          >
-                            Copy to Clipboard
-                          </button>
-                        )}
-                      </div>
-                      <pre className="p-4 text-sm whitespace-pre-wrap overflow-auto max-h-[500px] bg-white">
-                        {getDisplayText()}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-md font-medium mb-2">Worker-Based Extraction (Standard Method)</h3>
-              <div className={`p-3 rounded ${result.diagnostics.worker_based_extraction.success ? 'bg-green-50' : 'bg-red-50'}`}>
-                <p>Status: {result.diagnostics.worker_based_extraction.success ? 'Success' : 'Failed'}</p>
-                <p>Characters Extracted: {result.diagnostics.worker_based_extraction.text_length}</p>
-                {result.diagnostics.worker_based_extraction.success && (
-                  <div className="mt-2">
-                    <p className="font-medium">Text Sample:</p>
-                    <p className="text-sm mt-1 bg-white p-2 rounded border whitespace-pre-wrap">
-                      {result.diagnostics.worker_based_extraction.text_sample}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {result.diagnostics.warnings && result.diagnostics.warnings.length > 0 && (
-              <div>
-                <h3 className="text-md font-medium mb-2">Warnings</h3>
-                <div className="bg-yellow-50 p-3 rounded">
-                  <ul className="list-disc pl-5 space-y-1">
-                    {result.diagnostics.warnings.map((warning: string, i: number) => (
-                      <li key={i} className="text-yellow-800">{warning}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-            
-            {result.diagnostics.errors && result.diagnostics.errors.length > 0 && (
-              <div>
-                <h3 className="text-md font-medium mb-2">Errors</h3>
-                <div className="bg-red-50 p-3 rounded">
-                  <ul className="list-disc pl-5 space-y-1">
-                    {result.diagnostics.errors.map((err: string, i: number) => (
-                      <li key={i}>{err}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
+      {characterCount > 0 && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6">
+          Successfully extracted {characterCount} characters from the PDF.
+        </div>
+      )}
+      
+      {extractedText && (
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-4">Extracted Text ({characterCount} characters)</h2>
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-wrap max-h-[500px] overflow-y-auto text-sm font-mono">
+            {extractedText}
           </div>
         </div>
       )}
