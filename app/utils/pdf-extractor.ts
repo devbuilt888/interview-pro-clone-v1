@@ -224,17 +224,17 @@ function extractApacheFopContent(pdfText: string): string {
     }
   }
   
- // 3. Extract content from LinkedIn-specific text blocks
- const linkedinTextPattern = /BT\s+\/[A-Za-z0-9]+\s+[0-9.]+\s+Tf\s+[0-9.\-]+\s+[0-9.\-]+\s+Td\s+\(\s*([^)]+)\s*\)\s+Tj\s+ET/g;
- let linkedinMatch;
- while ((linkedinMatch = linkedinTextPattern.exec(pdfText)) !== null) {
-   if (linkedinMatch[1]) {
-     const content = linkedinMatch[1].trim();
-     if (content.length > 2 && /[A-Za-z]/.test(content)) {
-       textFragments.push(content);
-     }
-   }
- }
+  // 3. Extract content from LinkedIn-specific text blocks
+  const linkedinTextPattern = /BT\s+\/[A-Za-z0-9]+\s+[0-9.]+\s+Tf\s+[0-9.\-]+\s+[0-9.\-]+\s+Td\s+\(\s*([^)]+)\s*\)\s+Tj\s+ET/g;
+  let linkedinMatch;
+  while ((linkedinMatch = linkedinTextPattern.exec(pdfText)) !== null) {
+    if (linkedinMatch[1]) {
+      const content = linkedinMatch[1].trim();
+      if (content.length > 2 && /[A-Za-z]/.test(content)) {
+        textFragments.push(content);
+      }
+    }
+  }
   
   // Filter out redundant entries or gibberish
   const filteredText = textFragments
@@ -932,8 +932,8 @@ export async function extractTextFromPDF(fileData: Uint8Array): Promise<Extracti
           console.log('Successfully applied pattern translation to gibberish text');
         } else {
           // Otherwise fall back to the difficult PDF extraction
-          extractedText = extractTextFromDifficultPDF(rawText);
-          method = 'fallback-enhanced';
+        extractedText = extractTextFromDifficultPDF(rawText);
+        method = 'fallback-enhanced';
         }
         
         warnings.push('Used enhanced extraction due to detected gibberish');
@@ -1021,7 +1021,7 @@ function detectPdfFormat(text: string): { format: string; confidence: number } {
 }
 
 // Export the format detector for use in other modules
-export { detectPdfFormat };
+export { detectPdfFormat }; 
 
 /**
  * Special extraction function for difficult PDFs that have gibberish or unusual formatting

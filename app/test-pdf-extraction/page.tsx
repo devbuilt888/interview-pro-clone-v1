@@ -8,6 +8,8 @@ export default function TestPdfExtraction() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [characterCount, setCharacterCount] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [extractionMethod, setExtractionMethod] = useState<'standard' | 'gpt4-vision'>('standard');
+  const [apiKeyMissing, setApiKeyMissing] = useState<boolean>(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -16,7 +18,14 @@ export default function TestPdfExtraction() {
       setExtractedText('');
       setErrorMessage('');
       setCharacterCount(0);
+      setApiKeyMissing(false);
     }
+  };
+
+  const handleMethodChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setExtractionMethod(e.target.value as 'standard' | 'gpt4-vision');
+    setErrorMessage('');
+    setApiKeyMissing(false);
   };
 
   const handleExtract = async () => {
@@ -33,25 +42,35 @@ export default function TestPdfExtraction() {
     // Reset states
     setExtractedText('');
     setErrorMessage('');
+    setApiKeyMissing(false);
     setIsLoading(true);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/test-pdf-extraction', {
+      // Choose endpoint based on selected method
+      const endpoint = extractionMethod === 'standard' 
+        ? '/api/test-pdf-extraction' 
+        : '/api/ai-pdf-extraction';
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to extract text from PDF');
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        // Check for specific error related to OpenAI API key
+        if (data.error && data.error.includes('OpenAI API key')) {
+          setApiKeyMissing(true);
+          throw new Error('OpenAI API key is not configured. Please add your API key to the .env.local file.');
+        }
+        throw new Error(data.error || `Failed to extract text using ${extractionMethod} method`);
+      }
       
-      // Handle the new simplified response format
+      // Handle the response
       if (data.text) {
         setExtractedText(data.text);
         setCharacterCount(data.charCount || data.text.length);
@@ -86,18 +105,60 @@ export default function TestPdfExtraction() {
           />
         </div>
         
+        <div className="mb-4">
+          <label className="block text-gray-700 mb-2">Extraction Method</label>
+          <select
+            value={extractionMethod}
+            onChange={handleMethodChange}
+            className="block w-full p-2 border border-gray-300 rounded-md text-gray-700"
+          >
+            <option value="standard">Standard (Pattern-based extraction)</option>
+            <option value="gpt4-vision">GPT-4 Vision (OpenAI API)</option>
+          </select>
+          {extractionMethod === 'gpt4-vision' && (
+            <div className="mt-2 text-xs space-y-1">
+              <p className="text-amber-600">
+                Note: This method requires an OpenAI API key and incurs usage costs.
+              </p>
+              <p className="text-gray-600">
+                GPT-4 Vision provides better extraction quality, especially for complex layouts and scanned PDFs.
+              </p>
+            </div>
+          )}
+        </div>
+        
         <button
           onClick={handleExtract}
           disabled={!file || isLoading}
-          className={`py-2 px-4 rounded-md text-white font-medium ${
+          className={`py-2 px-4 rounded-md text-white font-medium flex items-center ${
             !file || isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {isLoading ? 'Extracting...' : 'Extract Text'}
+          {isLoading && (
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          )}
+          {isLoading ? 
+            (extractionMethod === 'gpt4-vision' ? 'Processing with GPT-4 Vision (may take 10-20 seconds)...' : 'Extracting...') : 
+            'Extract Text'
+          }
         </button>
       </div>
       
-      {errorMessage && (
+      {apiKeyMissing && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded mb-6">
+          <h3 className="font-semibold">OpenAI API Key Required</h3>
+          <p className="text-sm mt-1">To use GPT-4 Vision, you need to add your OpenAI API key to the .env.local file:</p>
+          <pre className="bg-gray-800 text-gray-100 p-2 mt-2 rounded text-xs overflow-x-auto">
+            OPENAI_API_KEY=your_api_key_here
+          </pre>
+          <p className="text-sm mt-2">Then restart the development server.</p>
+        </div>
+      )}
+      
+      {errorMessage && !apiKeyMissing && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
           {errorMessage}
         </div>
@@ -105,7 +166,7 @@ export default function TestPdfExtraction() {
       
       {characterCount > 0 && (
         <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6">
-          Successfully extracted {characterCount} characters from the PDF.
+          Successfully extracted {characterCount} characters from the PDF using {extractionMethod === 'standard' ? 'standard pattern-based extraction' : 'GPT-4 Vision'}.
         </div>
       )}
       
