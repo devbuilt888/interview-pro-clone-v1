@@ -257,168 +257,90 @@ function extractApacheFopContent(pdfText: string): string {
 }
 
 /**
- * Improved fallback text extraction for PDFs
- * Emulates key parts of pdfjs while being serverless compatible
+ * Binary Data Detection
+ * Check if the provided string appears to be binary/raw data rather than text
+ */
+function isBinaryData(text: string): boolean {
+  if (!text) return false;
+  
+  // Check for high concentration of non-printable characters
+  const nonPrintableCount = (text.match(/[^\x20-\x7E\r\n\t]/g) || []).length;
+  const binaryRatio = nonPrintableCount / text.length;
+  
+  // If more than 15% of characters are non-printable, it's likely binary
+  if (binaryRatio > 0.15) return true;
+  
+  // Check for common PDF binary markers
+  if (text.includes('stream') && 
+      text.includes('endstream') && 
+      text.includes('xref')) {
+    return true;
+  }
+  
+  // Check for other binary data patterns
+  const binaryPatterns = [
+    /^\%PDF/, // PDF header
+    /^\x00\x01/, // Binary file headers
+    /^\xFF\xD8\xFF/, // JPEG header
+    /^\x89\x50\x4E\x47/ // PNG header
+  ];
+  
+  for (const pattern of binaryPatterns) {
+    if (pattern.test(text.slice(0, 10))) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Buffer handling for binary data
+ * This converts binary strings back to proper Buffer for better handling
+ */
+function bufferToString(buffer: Uint8Array): string {
+  return new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+}
+
+/**
+ * Improved fallback text extraction for PDFs with better handling of binary data
  */
 export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtraction = false): Promise<string> {
   try {
-    console.log('Using enhanced fallback text extraction with no truncation...');
-    const text = new TextDecoder().decode(fileData);
+    console.log('Using enhanced fallback text extraction with binary data detection...');
     
-    // Check if we're dealing with raw PDF data and need special handling
-    const isRawPDFData = text.startsWith("%PDF-") || text.includes("endobj") || text.includes("stream");
+    // First try to decode using standard UTF-8
+    let rawText = bufferToString(fileData);
     
-    if (isRawPDFData) {
-      console.log('Detected raw PDF data - using special extraction for PDF syntax');
-      return extractTextFromRawPDF(text);
+    // Check if we're dealing with binary data
+    const isProbablyBinary = isBinaryData(rawText);
+    
+    if (isProbablyBinary) {
+      console.log('Detected binary data - attempting specialized extraction...');
+      return await extractTextFromBinaryPDF(fileData);
     }
     
-    // First try to improve the text using pattern translation
+    // If we have readable text already, proceed with pattern translation
     try {
-      const translatedText = improveGibberishText(text);
+      const translatedText = improveGibberishText(rawText);
       if (translatedText && translatedText.length > 100) {
-        console.log(`Successfully applied pattern translation in fallback extraction with ${translatedText.length} characters`);
+        console.log(`Successfully applied pattern translation with ${translatedText.length} characters`);
         return translatedText;
       }
     } catch (translationError) {
       console.warn('Pattern translation failed, continuing with regular extraction', translationError);
     }
     
-    // Extract text content using multiple regex patterns for more robust extraction
-    let extractedText = '';
-    
-    // Try multiple extraction approaches with priority
-    const approaches = [
-      // Approach 1: Try to extract all text between parentheses - very common in PDF text 
-      () => {
-        console.log('Trying comprehensive parentheses extraction...');
-        // Find ALL text within parentheses
-        const allParenthesesMatches = text.match(/\(([^)]+)\)/g) || [];
-        
-        if (allParenthesesMatches.length === 0) return '';
-        
-        const cleanedStrings = allParenthesesMatches
-          .map(match => match.slice(1, -1)) // Remove parentheses
-          .filter(str => 
-            str.length > 1 && // Not empty
-            /[A-Za-z]{2,}/.test(str) && // Has at least 2 letters
-            !/^[\d\s.,-]+$/.test(str) // Not just numbers and separators
-          );
-        
-        return cleanedStrings.join(' ').replace(/\s+/g, ' ').trim();
-      },
-      
-      // Approach 2: Extract text between BT (Begin Text) and ET (End Text) markers
-      () => {
-        console.log('Trying comprehensive BT/ET extraction...');
-        const textBlocks: string[] = [];
-        const btEtRegex = /BT[\s\S]*?ET/g;
-        let match;
-        
-        while ((match = btEtRegex.exec(text)) !== null) {
-          const block = match[0];
-          
-          // Extract all text content from within operators
-          const contentRegex = /\(([^)]+)\)\s*(?:Tj|TJ|'|")/g;
-          let contentMatch;
-          const blockContent: string[] = [];
-          
-          while ((contentMatch = contentRegex.exec(block)) !== null) {
-            if (contentMatch[1] && contentMatch[1].trim().length > 0) {
-              blockContent.push(contentMatch[1].trim());
-            }
-          }
-          
-          if (blockContent.length > 0) {
-            textBlocks.push(blockContent.join(' '));
-          }
-        }
-        
-        return textBlocks.join('\n').replace(/\s+/g, ' ').trim();
-      },
-      
-      // Approach 3: Extract text from TJ array operations (more complex text placement)
-      () => {
-        console.log('Trying comprehensive TJ array extraction...');
-        const tjMatches = text.match(/\[([^\]]+)\]\s*TJ/g) || [];
-        if (tjMatches.length === 0) return '';
-        
-        const tjContent = tjMatches
-          .map(match => {
-            // Extract all strings inside parentheses within TJ arrays
-            const parenthesesContent = match.match(/\(([^)]+)\)/g) || [];
-            return parenthesesContent
-              .map(pc => pc.slice(1, -1))
-              .join(' ');
-          })
-          .filter(content => content.length > 0)
-          .join(' ');
-        
-        return tjContent.replace(/\s+/g, ' ').trim();
-      },
-      
-      // Approach 4: Extract all text-like content from streams
-      () => {
-        console.log('Trying comprehensive stream extraction...');
-        const streamMatches = text.match(/stream([\s\S]*?)endstream/g) || [];
-        if (streamMatches.length === 0) return '';
-        
-        return streamMatches
-          .map(stream => {
-            // Get all readable text from stream
-            const cleaned = stream
-              .replace(/stream|endstream/g, '')
-              // Keep only printable ASCII characters
-              .replace(/[^\x20-\x7E\r\n]/g, ' ')
-              // Clean up
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            // Extract words and sentences
-            const words = cleaned.match(/[A-Za-z]{2,}[A-Za-z\s.,;:!?'-]{3,}/g) || [];
-            return words.join(' ');
-          })
-          .join('\n');
-      }
-    ];
-    
-    // Try each approach and combine the results to get maximum text
-    if (useMaxExtraction) {
-      console.log('Using maximum extraction approach (combining all methods)');
-      
-      // Run all approaches and combine their results
-      const allResults = await Promise.all(approaches.map(approach => approach()));
-      
-      // Filter out empty results and combine
-      const combinedText = allResults
-        .filter(result => result && result.length > 0)
-        .join('\n\n');
-      
-      console.log(`Combined extraction yielded ${combinedText.length} characters`);
-      
-      if (combinedText.length > 0) {
-        // Clean up the text
-        return cleanupExtractedText(combinedText);
-      }
-    } else {
-      // Traditional approach - try each method in sequence
-      for (const approach of approaches) {
-        const result = approach();
-        
-        if (result && result.length > 100) {
-          extractedText = result;
-          break;
-        } else if (result) {
-          // If we got some text but not enough, append it
-          extractedText += ' ' + result;
-        }
-      }
+    // If text looks partly readable but pattern translation failed,
+    // try some basic cleanup and return what we have
+    if (!isProbablyBinary && rawText.length > 100) {
+      console.log('Using basic text cleanup for non-binary content');
+      return cleanupExtractedText(rawText);
     }
     
-    console.log(`Fallback extraction got ${extractedText.length} characters`);
-    
-    // Try to clean up the text
-    return cleanupExtractedText(extractedText);
+    // Fallback to binary extraction as a last resort
+    console.log('Falling back to binary PDF extraction...');
+    return await extractTextFromBinaryPDF(fileData);
   } catch (error) {
     console.error('Error in enhanced fallback extraction:', error);
     return "Failed to extract text from PDF. The file may be corrupt or password protected.";
@@ -426,136 +348,276 @@ export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtract
 }
 
 /**
- * Special extraction function for raw PDF data
- * Extracts text from PDF syntax by focusing on text operators
+ * New specialized extraction for binary PDF data
+ * Using PDF.js-inspired techniques to extract readable text from binary PDF data
  */
-function extractTextFromRawPDF(rawPDF: string): string {
-  console.log('Using specialized extraction for raw PDF data');
+async function extractTextFromBinaryPDF(fileData: Uint8Array): Promise<string> {
+  console.log('Starting specialized binary PDF extraction...');
   
-  // Create a filter function to remove PDF syntax from results
-  const isPDFSyntax = (str: string) => {
-    return /(%PDF|endobj|stream|endstream|xref|startxref|\d+ \d+ obj|\d+ \d+ R|\/Type|\/Pages|\/Contents|\/Resources|\/MediaBox|\/Font|\/XObject|\/ExtGState)/i.test(str);
-  };
+  // Convert buffer to Uint8Array if needed
+  const pdfData = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
   
-  // Array to collect all extracted text fragments
-  const extractedFragments: string[] = [];
+  // Try different approaches for binary PDFs
+  const extractionMethods = [
+    extractTextFromStrings,
+    extractTextFromStreams,
+    extractTextFromObjStrings,
+    extractTextFromFontMaps
+  ];
   
-  // 1. Extract text from parentheses (common in PDF text operators)
-  const extractParenthesesContent = () => {
-    const parenthesesMatches = rawPDF.match(/\(([^)]{3,})\)/g) || [];
-    
-    const extracted = parenthesesMatches
-      .map(match => match.slice(1, -1)) // Remove parentheses
-      .filter(content => 
-        // Keep only strings that look like actual text
-        content.length > 3 && 
-        /[A-Za-z]{2,}/.test(content) && // Has at least 2 letters
-        !/^[\d\s.,-]+$/.test(content) && // Not just numbers and separators
-        !isPDFSyntax(content) // Not PDF syntax
-      )
-      .join(' ')
-      .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))) // Convert octal escapes
-      .replace(/\\/g, '') // Remove escape characters
-      .replace(/\s+/g, ' ') // Normalize whitespace
-      .trim();
-    
-    if (extracted.length > 0) {
-      extractedFragments.push(extracted);
-    }
-  };
+  // Run all methods and collect their results
+  const results: string[] = [];
   
-  // 2. Extract text from BT/ET blocks (text operators)
-  const extractBTETBlocks = () => {
-    const btEtBlocks = rawPDF.match(/BT[\s\S]*?ET/g) || [];
-    
-    if (btEtBlocks.length === 0) return;
-    
-    const textFromBlocks = btEtBlocks
-      .map(block => {
-        // Find all text content within the BT/ET block
-        const textMatches = block.match(/\(([^)]+)\)/g) || [];
-        return textMatches
-          .map(t => t.slice(1, -1)) // Remove parentheses
-          .filter(t => 
-            t.length > 2 && 
-            /[A-Za-z]{2,}/.test(t) && 
-            !isPDFSyntax(t)
-          )
-          .join(' ');
-      })
-      .filter(blockText => blockText.length > 0)
-      .join('\n');
-    
-    if (textFromBlocks.length > 0) {
-      extractedFragments.push(textFromBlocks);
-    }
-  };
-  
-  // 3. Extract text from TJ arrays (complex text placement)
-  const extractTJArrays = () => {
-    const tjMatches = rawPDF.match(/\[([^\]]+)\]\s*TJ/g) || [];
-    if (tjMatches.length === 0) return;
-    
-    const textFromTJ = tjMatches
-      .map(match => {
-        // Extract all strings inside parentheses within TJ arrays
-        const parenthesesContent = match.match(/\(([^)]+)\)/g) || [];
-        return parenthesesContent
-          .map(pc => pc.slice(1, -1)) // Remove parentheses
-          .filter(t => 
-            t.length > 2 && 
-            /[A-Za-z]{2,}/.test(t) && 
-            !isPDFSyntax(t)
-          )
-          .join(' ');
-      })
-      .filter(content => content.length > 0)
-      .join(' ');
-    
-    if (textFromTJ.length > 0) {
-      extractedFragments.push(textFromTJ);
-    }
-  };
-  
-  // Extract job titles that might be in the document
-  const extractJobTitles = () => {
-    const jobTitleKeywords = [
-      'Senior', 'Lead', 'Software', 'Developer', 'Engineer', 'Full-stack',
-      'Front-end', 'Back-end', 'React', 'Angular', 'Vue', 'Node', 'Python',
-      'Java', 'C\\+\\+', 'Architect', 'Manager', 'Director', 'VP', 'Head',
-      'Principal', 'Staff', 'Technical', 'Designer'
-    ];
-    
-    const titleRegex = new RegExp(`(?:${jobTitleKeywords.join('|')})\\s+[A-Za-z\\s]{2,30}(?:Developer|Engineer|Architect|Designer)`, 'g');
-    const titleMatches = rawPDF.match(titleRegex) || [];
-    
-    if (titleMatches.length > 0) {
-      const titles = titleMatches
-        .filter(t => !isPDFSyntax(t))
-        .join('\n');
-      
-      if (titles.length > 0) {
-        extractedFragments.push(titles);
+  for (const method of extractionMethods) {
+    try {
+      const extractedText = await method(pdfData);
+      if (extractedText && extractedText.length > 50) {
+        results.push(extractedText);
       }
+    } catch (error) {
+      console.warn(`Extraction method failed: ${error}`);
+      // Continue with next method
     }
-  };
-  
-  // Run all extraction methods
-  extractParenthesesContent();
-  extractBTETBlocks();
-  extractTJArrays();
-  extractJobTitles();
-  
-  // Combine all extracted text
-  if (extractedFragments.length === 0) {
-    console.warn('Could not extract any readable text from raw PDF data');
-    return "Could not extract readable text from this PDF. The file may contain scanned images or be corrupt.";
   }
   
-  // Join all fragments and clean up
-  const combinedText = extractedFragments.join('\n\n');
+  // Combine all successful extraction results
+  let combinedText = results.join('\n\n');
   
-  return cleanupExtractedText(combinedText);
+  // If we got at least some text, clean it and apply pattern translation
+  if (combinedText.length > 100) {
+    // First do basic cleaning
+    combinedText = cleanupExtractedText(combinedText);
+    
+    // Then apply pattern translation for better results
+    try {
+      const translatedText = improveGibberishText(combinedText);
+      if (translatedText && translatedText.length > combinedText.length * 0.5) {
+        return translatedText;
+      }
+    } catch (error) {
+      console.warn('Pattern translation after binary extraction failed:', error);
+    }
+    
+    // Return the cleaned text if translation failed
+    return combinedText;
+  }
+  
+  // If all extraction methods failed or produced no useful text
+  return "Could not extract readable text from this PDF. The file may contain encrypted content or be heavily image-based.";
+}
+
+/**
+ * Extract readable strings from binary PDF data
+ */
+async function extractTextFromStrings(pdfData: Uint8Array): Promise<string> {
+  // Convert the PDF data to a string for regex processing
+  // Use Latin1 encoding for binary data to preserve byte values
+  const pdfString = new TextDecoder('latin1').decode(pdfData);
+  
+  // Look for text between parentheses (common in PDFs)
+  const stringPattern = /\(([^\\\(\)]{3,})\)/g;
+  const results: string[] = [];
+  let match;
+  
+  while ((match = stringPattern.exec(pdfString)) !== null) {
+    const content = match[1];
+    
+    // Only keep strings that look like readable text
+    if (/[a-zA-Z]{3,}/.test(content) && 
+        !/^\d+$/.test(content) && 
+        content.length > 3) {
+      results.push(content.trim());
+    }
+  }
+  
+  // Join results and clean up
+  let text = results.join(' ');
+  
+  // Basic cleanup
+  text = text
+    // Remove PDF-specific sequences
+    .replace(/\\[nrt]/g, ' ')
+    // Convert octal escapes
+    .replace(/\\(\d{3})/g, (match, octal) => {
+      return String.fromCharCode(parseInt(octal, 8));
+    })
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  return text;
+}
+
+/**
+ * Extract text from stream objects in binary PDF data
+ */
+async function extractTextFromStreams(pdfData: Uint8Array): Promise<string> {
+  // Use Latin1 encoding to preserve byte values
+  const pdfString = new TextDecoder('latin1').decode(pdfData);
+  
+  // Pattern to find text streams
+  const streamPattern = /stream[\r\n]+([\s\S]*?)[\r\n]+endstream/g;
+  const results: string[] = [];
+  let match;
+  
+  while ((match = streamPattern.exec(pdfString)) !== null) {
+    const content = match[1];
+    
+    // Skip binary streams that don't have readable content
+    if (content.length < 10 || !/[a-zA-Z]{3,}/.test(content)) {
+      continue;
+    }
+    
+    // Extract readable text from stream
+    const textMatches = content.match(/\(([^\\\(\)]{3,})\)/g);
+    if (textMatches) {
+      for (const textMatch of textMatches) {
+        const text = textMatch.slice(1, -1);
+        
+        // Only keep strings that look like readable text
+        if (/[a-zA-Z]{3,}/.test(text) && text.length > 3) {
+          results.push(text);
+        }
+      }
+    } else {
+      // If no text in parentheses, try to extract words directly
+      const words = content
+        .replace(/[^a-zA-Z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(word => word.length > 3 && /[a-zA-Z]{3,}/.test(word));
+      
+      if (words.length > 5) {
+        results.push(words.join(' '));
+      }
+    }
+  }
+  
+  return results.join(' ');
+}
+
+/**
+ * Extract text from object strings in binary PDF data
+ */
+async function extractTextFromObjStrings(pdfData: Uint8Array): Promise<string> {
+  // Use Latin1 encoding to preserve byte values
+  const pdfString = new TextDecoder('latin1').decode(pdfData);
+  
+  // Pattern to find text within PDF objects
+  const objPattern = /(\d+\s+\d+\s+obj[\s\S]*?endobj)/g;
+  const results: string[] = [];
+  let match;
+  
+  while ((match = objPattern.exec(pdfString)) !== null) {
+    const objContent = match[1];
+    
+    // Look for text content within the object
+    // Ignore objects without text content
+    if (!objContent.includes('/Type /Page') && 
+        !objContent.includes('/Contents') && 
+        !objContent.includes('/Text')) {
+      continue;
+    }
+    
+    // Extract text strings from the object
+    const stringPattern = /\(([^\\\(\)]{3,})\)/g;
+    let stringMatch;
+    
+    while ((stringMatch = stringPattern.exec(objContent)) !== null) {
+      const content = stringMatch[1];
+      
+      // Only keep strings that look like readable text
+      if (/[a-zA-Z]{3,}/.test(content) && 
+          !/^\d+$/.test(content) && 
+          content.length > 3) {
+        results.push(content.trim());
+      }
+    }
+  }
+  
+  // Join results and clean up
+  return results.join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Extract text using font mapping information in the PDF
+ */
+async function extractTextFromFontMaps(pdfData: Uint8Array): Promise<string> {
+  // Use Latin1 encoding to preserve byte values
+  const pdfString = new TextDecoder('latin1').decode(pdfData);
+  
+  // Look for text content in BT (Begin Text) and ET (End Text) sections
+  const btEtPattern = /BT\s*([\s\S]*?)\s*ET/g;
+  const results: string[] = [];
+  let match;
+  
+  while ((match = btEtPattern.exec(pdfString)) !== null) {
+    const textBlock = match[1];
+    
+    // Extract strings from TJ operators (most common for text)
+    const tjPattern = /\[(.*?)\]\s*TJ/g;
+    let tjMatch;
+    
+    while ((tjMatch = tjPattern.exec(textBlock)) !== null) {
+      const tjContent = tjMatch[1];
+      
+      // Extract strings from TJ content
+      const stringPattern = /\(([^\\\(\)]*)\)/g;
+      let stringMatch;
+      
+      const blockParts: string[] = [];
+      
+      while ((stringMatch = stringPattern.exec(tjContent)) !== null) {
+        const content = stringMatch[1];
+        
+        // Skip empty or numeric-only strings
+        if (content.length === 0 || /^\d+$/.test(content)) {
+          continue;
+        }
+        
+        blockParts.push(content);
+      }
+      
+      if (blockParts.length > 0) {
+        results.push(blockParts.join(' '));
+      }
+    }
+    
+    // Also check for Tj operators (simpler text)
+    const tjSinglePattern = /\(([^\\\(\)]*)\)\s*Tj/g;
+    let tjSingleMatch;
+    
+    while ((tjSingleMatch = tjSinglePattern.exec(textBlock)) !== null) {
+      const content = tjSingleMatch[1];
+      
+      // Skip empty or numeric-only strings
+      if (content.length === 0 || /^\d+$/.test(content)) {
+        continue;
+      }
+      
+      results.push(content);
+    }
+  }
+  
+  // Look for ToUnicode maps for better character encoding
+  // This is a simplified approach - full implementation would be much more complex
+  const toUnicodePattern = /\/ToUnicode\s+(\d+\s+\d+\s+R)/g;
+  if (toUnicodePattern.test(pdfString)) {
+    console.log('ToUnicode maps found - more accurate text extraction may be possible');
+  }
+  
+  // Join results and clean up
+  return results.join(' ')
+    // Convert octal escapes
+    .replace(/\\(\d{3})/g, (match, octal) => {
+      return String.fromCharCode(parseInt(octal, 8));
+    })
+    // Remove other escapes
+    .replace(/\\[nrt]/g, ' ')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**

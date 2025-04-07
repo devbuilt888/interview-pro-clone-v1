@@ -388,98 +388,193 @@ function escapeRegExp(string: string): string {
 }
 
 /**
- * Identify and replace common gibberish patterns in PDF text
+ * Main function to improve gibberish text by translating patterns
+ * and extracting meaningful content
  */
 export function improveGibberishText(text: string): string {
   if (!text || text.length < 10) return text;
   
-  // Special case for repeated words like "Adobe Adobe Adobe"
+  // First check if the text contains substantial binary data
+  const nonPrintableCount = (text.match(/[^\x20-\x7E\r\n\t]/g) || []).length;
+  const binaryRatio = nonPrintableCount / text.length;
+  
+  // If more than 15% is binary, pre-clean it
+  if (binaryRatio > 0.15) {
+    text = text.replace(/[^\x20-\x7E\r\n\t]/g, ' ');
+  }
+  
+  let improvedText = text;
+  
+  // Check for common patterns that indicate raw PDF data
+  if (containsPDFMarkers(text)) {
+    // Extract text from PDF syntax instead of doing pattern translation
+    console.log('Detected PDF markers, attempting to extract readable text');
+    return extractTextFromPDFString(text);
+  }
+
+  // Check for repeated words (e.g., "Adobe Adobe Adobe")
   const repeatedWordsPattern = /([A-Z][a-z]+)(?:\s+\1){2,}/g;
-  let matched = false;
-  const repeatedWordsMatches = Array.from(text.matchAll(repeatedWordsPattern));
+  const repeatedWordsMatch = repeatedWordsPattern.exec(text);
   
-  if (repeatedWordsMatches.length > 0) {
-    console.log('Detected repeated words pattern, applying special handling');
-    const detectedCompanies = new Set<string>();
+  if (repeatedWordsMatch) {
+    console.log('Detected repeated word pattern, extracting company name');
     
-    // Extract the company names
-    repeatedWordsMatches.forEach(match => {
-      if (match[1] && match[1].length > 2) {
-        detectedCompanies.add(match[1]);
-      }
-    });
+    // Likely a company name repeated throughout document
+    const companyName = repeatedWordsMatch[1];
     
-    // If we found companies with this pattern, specially format the text
-    if (detectedCompanies.size > 0) {
-      const companies = Array.from(detectedCompanies);
-      let improved = text;
-      
-      // Format detected companies
-      companies.forEach(company => {
-        improved = improved.replace(new RegExp(`${company}(\\s+${company})+`, 'g'), 
-          `\nCompany: ${company.toUpperCase()}\n`);
-      });
-      
-      // Extract job titles after special handling
-      const jobTitlePattern = /(?:Senior|Lead|Sr\.?|Jr\.?|Principal)[\s\w\-]+(?:Developer|Engineer|Architect|Designer)/gi;
-      const jobTitles = Array.from(improved.matchAll(jobTitlePattern))
-        .map(m => m[0])
-        .filter(Boolean);
-      
-      // Format job titles
-      jobTitles.forEach(title => {
-        improved = improved.replace(new RegExp(`\\b${escapeRegExp(title)}\\b`, 'gi'),
-          `\nPosition: ${title}\n`);
-      });
-      
-      matched = true;
-      text = improved;
+    // Add this as a header and highlight it
+    const companyHeader = `\n\nCOMPANY: ${companyName.toUpperCase()}\n\n`;
+    improvedText = improvedText.replace(new RegExp(`(${escapeRegExp(companyName)}\\s+){2,}${escapeRegExp(companyName)}`, 'g'), companyHeader);
+  }
+  
+  // Extract company names from context (e.g., job titles, dates)
+  try {
+    const companies = extractCompaniesFromContext(improvedText);
+    for (const company of companies) {
+      // Format detected companies to stand out in the text
+      improvedText = improvedText.replace(
+        new RegExp(`\\b${escapeRegExp(company)}\\b`, 'gi'),
+        `\n${company.toUpperCase()}\n`
+      );
+    }
+  } catch (error) {
+    console.warn('Company extraction error:', error);
+  }
+  
+  // Try to find job titles
+  const jobTitlePattern = /(?:Senior|Lead|Sr\.?|Jr\.?|Principal)[\s\w\-]+(?:Developer|Engineer|Architect|Designer)/gi;
+  const jobTitleMatches = improvedText.match(jobTitlePattern) || [];
+  
+  for (const jobTitle of jobTitleMatches) {
+    // Format job titles to stand out
+    improvedText = improvedText.replace(
+      new RegExp(`\\b${escapeRegExp(jobTitle)}\\b`, 'gi'),
+      `\nJOB TITLE: ${jobTitle.toUpperCase()}\n`
+    );
+  }
+  
+  // Apply pattern translations for common gibberish patterns
+  const translationResult = translateGibberishPatterns(improvedText);
+  
+  if (translationResult.translations.length > 0) {
+    improvedText = translationResult.translatedText;
+  }
+  
+  // Special transformations for gibberish patterns
+  
+  // 1. Convert "F N A M E" style text to "FNAME" 
+  improvedText = improvedText.replace(/([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])/g, '$1$2$3$4$5');
+  
+  // 2. Fix double words like "John John Smith"
+  improvedText = improvedText.replace(/\b(\w+)(\s+\1)+\b/g, '$1');
+  
+  // 3. Clean up repeated newlines and spacing
+  improvedText = improvedText.replace(/\n{3,}/g, '\n\n').trim();
+  
+  return improvedText;
+}
+
+/**
+ * Check if text contains PDF syntax markers
+ */
+function containsPDFMarkers(text: string): boolean {
+  // Check for common PDF syntax patterns
+  return (
+    text.startsWith('%PDF-') || 
+    text.includes('endobj') ||
+    text.includes('/Type /Page') ||
+    text.includes('/Contents') ||
+    (text.includes('BT') && text.includes('ET') && text.includes('Tj'))
+  );
+}
+
+/**
+ * Extract readable text from a PDF string
+ */
+function extractTextFromPDFString(pdfString: string): string {
+  console.log('Extracting text from PDF string');
+  const textFragments: string[] = [];
+  
+  // Extract strings in parentheses (most common method)
+  const parenthesesPattern = /\(([^\\\(\)]{3,})\)/g;
+  let match;
+  
+  while ((match = parenthesesPattern.exec(pdfString)) !== null) {
+    const content = match[1];
+    if (content.length > 3 && 
+        /[a-zA-Z]{2,}/.test(content) && 
+        !/^[\d\s.,-]+$/.test(content)) {
+      textFragments.push(content.trim());
     }
   }
   
-  // If we didn't apply the special case, process normally
-  if (!matched) {
-    // Remove common gibberish artifacts
-    text = text
-      // Remove gibberish symbols often found in PDFs
-      .replace(/[\[\]^_#@&{}~`]/g, ' ')
-      // Convert strange character sequences to spaces
-      .replace(/[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/g, ' ')
-      // Clean up whitespace
-      .replace(/\s+/g, ' ');
-  }
+  // Try to find text in BT/ET blocks
+  const btEtPattern = /BT\s*([\s\S]*?)\s*ET/g;
   
-  // Apply pattern translations
-  const { translatedText, translations } = translateGibberishPatterns(text);
-  let improved = translatedText;
-  
-  // Format detected companies to stand out in the text
-  translations.forEach(translation => {
-    if (translation.type === 'company') {
-      try {
-        // Format company names to be more recognizable
-        const safePattern = new RegExp(`\\b${escapeRegExp(translation.translated)}\\b`, 'g');
-        improved = improved.replace(safePattern, `\n${translation.translated.toUpperCase()}\n`);
-      } catch (error) {
-        console.warn(`Error formatting company: ${translation.translated}`, error);
+  while ((match = btEtPattern.exec(pdfString)) !== null) {
+    const textBlock = match[1];
+    
+    // Check for Tj operators
+    const tjPattern = /\(\s*([^\)]+)\s*\)\s*Tj/g;
+    let tjMatch;
+    
+    while ((tjMatch = tjPattern.exec(textBlock)) !== null) {
+      const content = tjMatch[1];
+      if (content.length > 3 && /[a-zA-Z]{2,}/.test(content)) {
+        textFragments.push(content.trim());
       }
     }
-  });
+    
+    // Check for TJ arrays
+    const tjArrayPattern = /\[(.*?)\]\s*TJ/g;
+    let tjArrayMatch;
+    
+    while ((tjArrayMatch = tjArrayPattern.exec(textBlock)) !== null) {
+      const tjContent = tjArrayMatch[1];
+      
+      // Extract strings from TJ content
+      const stringPattern = /\(\s*([^\)]*)\s*\)/g;
+      let stringMatch;
+      
+      while ((stringMatch = stringPattern.exec(tjContent)) !== null) {
+        const content = stringMatch[1];
+        if (content.length > 0 && !/^\d+$/.test(content)) {
+          textFragments.push(content.trim());
+        }
+      }
+    }
+  }
   
-  // Special transformations for common gibberish patterns
+  // Join results and clean up
+  let extractedText = textFragments.join(' ');
   
-  // Transform "F N A M E" style text to "FNAME"
-  improved = improved.replace(/(?:^|\s)([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])(?:\s|$)/g, 
-    (_, a, b, c, d, e) => ` ${a}${b}${c}${d}${e} `);
+  // Basic cleanup
+  extractedText = extractedText
+    // Convert octal escapes
+    .replace(/\\(\d{3})/g, (match, octal) => {
+      return String.fromCharCode(parseInt(octal, 8));
+    })
+    // Remove PDF-specific sequences
+    .replace(/\\[nrt]/g, ' ')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
   
-  // Transform "L A S T N A M E" style text to "LASTNAME"
-  improved = improved.replace(/(?:^|\s)([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])(?:\s|$)/g,
-    (_, a, b, c, d, e, f, g, h) => ` ${a}${b}${c}${d}${e}${f}${g}${h} `);
+  // Try to extract companies from the cleaned text
+  try {
+    const companies = extractCompaniesFromContext(extractedText);
+    for (const company of companies) {
+      // Format companies to stand out
+      extractedText = extractedText.replace(
+        new RegExp(`\\b${escapeRegExp(company)}\\b`, 'gi'),
+        `\n${company.toUpperCase()}\n`
+      );
+    }
+  } catch (e) {
+    console.warn('Company extraction from PDF string failed:', e);
+  }
   
-  // Cleanup repeated newlines
-  improved = improved.replace(/\n{3,}/g, '\n\n');
-  
-  return improved.trim();
+  return extractedText;
 }
 
 // Additional contextual extraction for common resume patterns
