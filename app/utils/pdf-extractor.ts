@@ -303,7 +303,7 @@ export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtract
       // Approach 2: Extract text between BT (Begin Text) and ET (End Text) markers
       () => {
         console.log('Trying comprehensive BT/ET extraction...');
-        const textBlocks = [];
+        const textBlocks: string[] = [];
         const btEtRegex = /BT[\s\S]*?ET/g;
         let match;
         
@@ -313,7 +313,7 @@ export async function fallbackTextExtraction(fileData: Uint8Array, useMaxExtract
           // Extract all text content from within operators
           const contentRegex = /\(([^)]+)\)\s*(?:Tj|TJ|'|")/g;
           let contentMatch;
-          const blockContent = [];
+          const blockContent: string[] = [];
           
           while ((contentMatch = contentRegex.exec(block)) !== null) {
             if (contentMatch[1] && contentMatch[1].trim().length > 0) {
