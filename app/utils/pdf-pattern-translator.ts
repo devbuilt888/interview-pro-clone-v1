@@ -142,6 +142,46 @@ const companyPatterns: PatternMatch[] = [
     confidenceScore: 0.8,
     type: 'company',
     extractFn: (match) => match[1]?.trim() || null
+  },
+
+  // Resume pattern: Company followed by location, country and contract type/dash
+  {
+    pattern: /([A-Z][A-Za-z0-9\.\-&]+(?:[\s,]+[A-Za-z]+)?)\s*(?:,|\-|–)\s*(?:USA|Canada|UK|Remote|Direct Contract|Contract|Fulltime)/g,
+    confidenceScore: 0.9,
+    type: 'company',
+    extractFn: (match) => match[1]?.trim() || null
+  },
+  
+  // Resume pattern: Company name with parenthetical expansion
+  {
+    pattern: /([A-Z][A-Za-z0-9\.\-&]+)\s*\(([^)]+)\)(?:\s*,\s*[A-Za-z]+)?/g,
+    confidenceScore: 0.85,
+    type: 'company',
+    extractFn: (match) => `${match[1].trim()} (${match[2].trim()})` || null
+  },
+  
+  // Resume pattern: Company followed by "Contract through"
+  {
+    pattern: /([A-Z][A-Za-z0-9\.\-&\s]+)(?:\s*–\s*|\s*-\s*|\s+)Contract through/g,
+    confidenceScore: 0.9,
+    type: 'company',
+    extractFn: (match) => match[1]?.trim() || null
+  },
+  
+  // Resume pattern: Company followed by job title on the next line
+  {
+    pattern: /([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:\r?\n|\s{2,})(?:Senior|Lead|Software|Full-stack|Front-end|React|Developer|Engineer)/g,
+    confidenceScore: 0.75,
+    type: 'company',
+    extractFn: (match) => match[1]?.trim() || null
+  },
+  
+  // Resume pattern: Company name before date range
+  {
+    pattern: /([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:\s{2,}|\s+)(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s*(?:\d{4}|\d{2}|\-|–|to)/gi,
+    confidenceScore: 0.8,
+    type: 'company',
+    extractFn: (match) => match[1]?.trim() || null
   }
 ];
 
@@ -273,6 +313,25 @@ export function translateGibberishPatterns(text: string): TranslationResult {
     }
   }
   
+  // Apply contextual company extraction
+  try {
+    const contextCompanies = extractCompaniesFromContext(text);
+    // Add contextual companies to translations
+    contextCompanies.forEach(company => {
+      // Avoid duplicates
+      if (!translations.some(t => t.type === 'company' && t.translated === company)) {
+        translations.push({
+          type: 'company',
+          original: company,
+          translated: company,
+          confidence: 0.7 // Slightly lower confidence for contextual extraction
+        });
+      }
+    });
+  } catch (error) {
+    console.warn('Error during contextual company extraction:', error);
+  }
+  
   // Apply section header mappings
   const sectionMappings = mapGibberishToSectionHeaders(text);
   sectionMappings.forEach((sectionName, gibberish) => {
@@ -344,8 +403,21 @@ export function improveGibberishText(text: string): string {
     .replace(/\s+/g, ' ');
   
   // Apply pattern translations
-  const { translatedText } = translateGibberishPatterns(improved);
+  const { translatedText, translations } = translateGibberishPatterns(improved);
   improved = translatedText;
+  
+  // Format detected companies to stand out in the text
+  translations.forEach(translation => {
+    if (translation.type === 'company') {
+      try {
+        // Format company names to be more recognizable
+        const safePattern = new RegExp(`\\b${escapeRegExp(translation.translated)}\\b`, 'g');
+        improved = improved.replace(safePattern, `\n${translation.translated.toUpperCase()}\n`);
+      } catch (error) {
+        console.warn(`Error formatting company: ${translation.translated}`, error);
+      }
+    }
+  });
   
   // Special transformations for common gibberish patterns
   
@@ -357,5 +429,34 @@ export function improveGibberishText(text: string): string {
   improved = improved.replace(/(?:^|\s)([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])(?:\s|$)/g,
     (_, a, b, c, d, e, f, g, h) => ` ${a}${b}${c}${d}${e}${f}${g}${h} `);
   
+  // Cleanup repeated newlines
+  improved = improved.replace(/\n{3,}/g, '\n\n');
+  
   return improved.trim();
+}
+
+// Additional contextual extraction for common resume patterns
+export function extractCompaniesFromContext(text: string): string[] {
+  const companies: string[] = [];
+  
+  // Extract company names between job titles and dates or bullet points
+  const contextPattern = /(?:Senior|Lead|Sr\.?|Jr\.?|Principal|Chief|Head|Manager|Director)[\s\w\-]+(?:Developer|Engineer|Architect|Designer|Consultant)\s+(?:at|with|for)?\s+([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?=\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d{4}|\•|\*))/gi;
+  
+  let match;
+  while ((match = contextPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+  }
+  
+  // Extract company names from "Company: Position" format
+  const colonPattern = /([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?::|–|-)\s+(?:Senior|Lead|Software|Full-stack|Front-end|React|Developer|Engineer)/g;
+  
+  while ((match = colonPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+  }
+  
+  return [...new Set(companies)]; // Remove duplicates
 }
