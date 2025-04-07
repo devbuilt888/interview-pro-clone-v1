@@ -67,7 +67,8 @@ export default function TestPatternTranslator() {
     "BT /F1 12 Tf 100 700 Td (Jane Doe) Tj ET BT /F1 10 Tf 100 680 Td (Software Developer) Tj ET",
     "J O H N  D O E Senior Software Engineer",
     "X P R N C 2018 - Present Company Name",
-    "D U C T N University of Technology"
+    "D U C T N University of Technology",
+    "Adobe Adobe Adobe\n\nJose Perez Microsoft Word Juan Beas Perez Tech\n\nLead\n\nSenior\n\nSoftware developer\n\nSenior\n\nFront-end Engineer Full-stack React and C++ Developer"
   ];
 
   // Format the detected translations with colored highlighting by type

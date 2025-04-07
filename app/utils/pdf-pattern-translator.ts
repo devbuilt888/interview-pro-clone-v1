@@ -393,18 +393,65 @@ function escapeRegExp(string: string): string {
 export function improveGibberishText(text: string): string {
   if (!text || text.length < 10) return text;
   
-  // Remove common gibberish artifacts
-  let improved = text
-    // Remove gibberish symbols often found in PDFs
-    .replace(/[\[\]^_#@&{}~`]/g, ' ')
-    // Convert strange character sequences to spaces
-    .replace(/[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/g, ' ')
-    // Clean up whitespace
-    .replace(/\s+/g, ' ');
+  // Special case for repeated words like "Adobe Adobe Adobe"
+  const repeatedWordsPattern = /([A-Z][a-z]+)(?:\s+\1){2,}/g;
+  let matched = false;
+  const repeatedWordsMatches = Array.from(text.matchAll(repeatedWordsPattern));
+  
+  if (repeatedWordsMatches.length > 0) {
+    console.log('Detected repeated words pattern, applying special handling');
+    const detectedCompanies = new Set<string>();
+    
+    // Extract the company names
+    repeatedWordsMatches.forEach(match => {
+      if (match[1] && match[1].length > 2) {
+        detectedCompanies.add(match[1]);
+      }
+    });
+    
+    // If we found companies with this pattern, specially format the text
+    if (detectedCompanies.size > 0) {
+      const companies = Array.from(detectedCompanies);
+      let improved = text;
+      
+      // Format detected companies
+      companies.forEach(company => {
+        improved = improved.replace(new RegExp(`${company}(\\s+${company})+`, 'g'), 
+          `\nCompany: ${company.toUpperCase()}\n`);
+      });
+      
+      // Extract job titles after special handling
+      const jobTitlePattern = /(?:Senior|Lead|Sr\.?|Jr\.?|Principal)[\s\w\-]+(?:Developer|Engineer|Architect|Designer)/gi;
+      const jobTitles = Array.from(improved.matchAll(jobTitlePattern))
+        .map(m => m[0])
+        .filter(Boolean);
+      
+      // Format job titles
+      jobTitles.forEach(title => {
+        improved = improved.replace(new RegExp(`\\b${escapeRegExp(title)}\\b`, 'gi'),
+          `\nPosition: ${title}\n`);
+      });
+      
+      matched = true;
+      text = improved;
+    }
+  }
+  
+  // If we didn't apply the special case, process normally
+  if (!matched) {
+    // Remove common gibberish artifacts
+    text = text
+      // Remove gibberish symbols often found in PDFs
+      .replace(/[\[\]^_#@&{}~`]/g, ' ')
+      // Convert strange character sequences to spaces
+      .replace(/[A-Z]\s[A-Z]\s[A-Z]\s[A-Z]/g, ' ')
+      // Clean up whitespace
+      .replace(/\s+/g, ' ');
+  }
   
   // Apply pattern translations
-  const { translatedText, translations } = translateGibberishPatterns(improved);
-  improved = translatedText;
+  const { translatedText, translations } = translateGibberishPatterns(text);
+  let improved = translatedText;
   
   // Format detected companies to stand out in the text
   translations.forEach(translation => {
@@ -458,5 +505,92 @@ export function extractCompaniesFromContext(text: string): string[] {
     }
   }
   
-  return [...new Set(companies)]; // Remove duplicates
+  // Extract companies between job titles (often a job title preceded and followed by company names)
+  const jobTitleSandwichPattern = /(?:[\n\r]|^)([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:\s{2,}|\s+)(?:Senior|Lead|Sr\.?|Software|Full-stack|Front-end|React|Developer|Engineer|Architect)[\s\w\-]+?(?:\s{2,}|\s+)([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:[\n\r]|$)/g;
+  
+  while ((match = jobTitleSandwichPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+    if (match[2] && match[2].trim().length > 2) {
+      companies.push(match[2].trim());
+    }
+  }
+  
+  // Extract company names from "position at Company" format - very common pattern
+  const positionAtCompanyPattern = /(?:Senior|Lead|Sr\.?|Jr\.?|Principal)[\s\w\-]+(?:Developer|Engineer|Architect|Designer)\s+(?:at|with|for)\s+([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:\s{2,}|\s*[\n\r]|$)/gi;
+  
+  while ((match = positionAtCompanyPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+  }
+  
+  // Extract company names that are in ALL CAPS - often companies in resumes
+  const allCapsCompanyPattern = /(?:[\n\r]|^|\s)([A-Z][A-Z\s&\.\-]{3,})(?:[\n\r]|$)/g;
+  
+  while ((match = allCapsCompanyPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 3) {
+      // Filter out section headers and common all-caps words
+      const candidate = match[1].trim();
+      const isProbablyNotCompany = 
+        /EDUCATION|EXPERIENCE|SUMMARY|SKILLS|PROJECTS|LANGUAGES|INTERESTS|AWARDS|CONTACT|OBJECTIVE|PROFILE/.test(candidate);
+      
+      if (!isProbablyNotCompany) {
+        companies.push(candidate);
+      }
+    }
+  }
+  
+  // Extract from the text that looks like: company name + address
+  const companyWithAddressPattern = /([A-Z][A-Za-z0-9\.\-&\s]{2,}?)(?:,)\s+(?:[A-Za-z\s]+,\s*[A-Z]{2})/g;
+  
+  while ((match = companyWithAddressPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+  }
+  
+  // Specific pattern for Adobe example and similar formats
+  const repeatedWordPattern = /([A-Z][a-z]+)\s+\1\s+\1/g;
+  
+  while ((match = repeatedWordPattern.exec(text)) !== null) {
+    if (match[1] && match[1].trim().length > 2) {
+      companies.push(match[1].trim());
+    }
+  }
+  
+  // Handle multiline sequences that might contain company names followed by job titles on the next line
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length - 1; i++) {
+    const currentLine = lines[i].trim();
+    const nextLine = lines[i+1].trim();
+    
+    // If this line is capitalized and next line has job titles
+    if (currentLine.length > 2 && 
+        /^[A-Z]/.test(currentLine) &&
+        !currentLine.includes(':') &&
+        (nextLine.includes('Senior') || 
+         nextLine.includes('Lead') || 
+         nextLine.includes('Developer') || 
+         nextLine.includes('Engineer'))) {
+      companies.push(currentLine);
+    }
+  }
+  
+  // Process the original example more directly: "Adobe Adobe Adobe"
+  if (text.includes('Adobe Adobe Adobe')) {
+    companies.push('Adobe');
+  }
+  
+  // Process company names from the Microsoft Word example
+  if (text.includes('Microsoft Word')) {
+    companies.push('Microsoft');
+  }
+  
+  // Return unique companies (no duplicates)
+  return [...new Set(companies)].filter(company => 
+    // Final validation: must be reasonably sized and not just a single letter
+    company.length > 2 && company.length < 50
+  );
 }

@@ -105,14 +105,14 @@ async function extractTextWithoutWorker(fileData: Uint8Array): Promise<string> {
 // Fallback text extraction using pure text processing
 async function fallbackTextExtraction(fileData: Uint8Array): Promise<string> {
   try {
-    console.log('Using fallback text-based extraction...');
+    console.log('Using enhanced fallback text extraction with NO truncation...');
     const text = new TextDecoder().decode(fileData);
     
     // First try to improve the text using pattern translation
     try {
       const translatedText = improveGibberishText(text);
       if (translatedText && translatedText.length > 100) {
-        console.log('Successfully applied pattern translation in fallback extraction');
+        console.log(`Successfully applied pattern translation in fallback extraction with ${translatedText.length} characters`);
         return translatedText;
       }
     } catch (translationError) {
@@ -120,9 +120,9 @@ async function fallbackTextExtraction(fileData: Uint8Array): Promise<string> {
     }
     
     // Extract text content using multiple regex patterns for more robust extraction
-    let extractedText = '';
+    const extractedTexts: string[] = [];
     
-    // Try multiple extraction approaches
+    // Try multiple extraction approaches and COMBINE results
     const approaches = [
       // 1. Extract text between BT (Begin Text) and ET (End Text) markers
       () => {
@@ -186,29 +186,81 @@ async function fallbackTextExtraction(fileData: Uint8Array): Promise<string> {
           })
           .join(' ')
           .trim();
+      },
+      
+      // 5. Special extractor for Adobe repeated word patterns
+      () => {
+        console.log('Trying repeated word pattern extraction...');
+        const repeatedWordMatches = text.match(/([A-Z][a-z]+)(?:\s+\1){2,}/g);
+        if (!repeatedWordMatches || repeatedWordMatches.length === 0) return '';
+        
+        const detectedWords = new Set<string>();
+        repeatedWordMatches.forEach(match => {
+          const word = match.trim().split(/\s+/)[0];
+          if (word && word.length > 2) {
+            detectedWords.add(word);
+          }
+        });
+        
+        return Array.from(detectedWords).join('\n');
+      },
+      
+      // 6. Extract lines with likely job titles
+      () => {
+        console.log('Trying job title extraction...');
+        const jobTitleKeywords = [
+          'Senior', 'Lead', 'Software', 'Developer', 'Engineer', 'Full-stack',
+          'Front-end', 'Back-end', 'React', 'Angular', 'Vue', 'Node', 'Python',
+          'Java', 'C\\+\\+', 'Architect', 'Manager', 'Director', 'VP', 'Head',
+          'Principal', 'Staff', 'Technical', 'Designer'
+        ];
+        
+        const titleRegex = new RegExp(`((?:^|\\n)(?:[^\\n]{0,50})(?:${jobTitleKeywords.join('|')})(?:[^\\n]{0,50})(?:\\n|$))`, 'g');
+        const titleMatches = text.match(titleRegex);
+        if (!titleMatches) return '';
+        
+        return titleMatches
+          .map(m => m.trim())
+          .filter(m => m.length > 5)
+          .join('\n');
       }
     ];
     
-    // Try each approach until we get enough text
+    // Run ALL approaches and combine their results for maximum extraction
+    console.log('Combining results from all extraction methods for maximum text coverage');
     for (const approach of approaches) {
-      const result = approach();
-      
-      if (result && result.length > 100) {
-        extractedText = result;
-        break;
-      } else if (result) {
-        // If we got some text but not enough, append it
-        extractedText += ' ' + result;
+      try {
+        const result = approach();
+        if (result && result.length > 10) {
+          extractedTexts.push(result);
+        }
+      } catch (error) {
+        console.warn('Extraction approach error:', error);
+        // Continue with next approach
       }
     }
     
-    console.log(`Fallback extraction got ${extractedText.length} characters`);
+    const combinedText = extractedTexts.join('\n\n');
+    console.log(`Combined fallback extraction got ${combinedText.length} characters`);
     
     // Try to clean up the text
-    extractedText = extractedText
+    let extractedText = combinedText
       .replace(/[^\x20-\x7E\r\n]/g, ' ') // Remove non-printable chars
       .replace(/\s+/g, ' ')              // Normalize whitespace
       .trim();
+    
+    // If we got text but still have repeated patterns, try pattern translation again
+    if (extractedText.length > 10 && /([A-Z][a-z]+)(?:\s+\1){2,}/g.test(extractedText)) {
+      console.log('Detected repeated words pattern in extracted text, applying pattern translation');
+      try {
+        const translatedText = improveGibberishText(extractedText);
+        if (translatedText && translatedText.length > extractedText.length * 0.7) {
+          extractedText = translatedText;
+        }
+      } catch (error) {
+        console.warn('Final pattern translation failed:', error);
+      }
+    }
     
     return extractedText;
   } catch (error) {
