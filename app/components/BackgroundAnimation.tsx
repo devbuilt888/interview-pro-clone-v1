@@ -14,9 +14,10 @@ const BackgroundAnimation = () => {
   useEffect(() => {
     if (!containerRef.current) return;
     
-    // Store reference to container DOM node to use in cleanup
+    // Store references to use in cleanup function
     const container = containerRef.current;
-
+    const cubesRefValue = cubesRef.current;
+    
     // Add maximum speed constant
     const MAX_SPEED = 0.02; // Maximum speed for any direction
 
@@ -157,7 +158,7 @@ const BackgroundAnimation = () => {
       }
 
       // First, update positions
-      cubesRef.current.forEach((cube, index) => {
+      cubesRefValue.forEach((cube, index) => {
         const velocity = velocitiesRef.current[index];
         
         // Update position
@@ -191,8 +192,8 @@ const BackgroundAnimation = () => {
       });
       
       // Check for collisions between all pairs of objects
-      for (let i = 0; i < cubesRef.current.length; i++) {
-        for (let j = i + 1; j < cubesRef.current.length; j++) {
+      for (let i = 0; i < cubesRefValue.length; i++) {
+        for (let j = i + 1; j < cubesRefValue.length; j++) {
           const sphere1 = boundingSpheresRef.current[i];
           const sphere2 = boundingSpheresRef.current[j];
           
@@ -203,8 +204,8 @@ const BackgroundAnimation = () => {
           // If spheres are colliding
           if (distance < minDistance) {
             // Get the objects and their velocities
-            const obj1 = cubesRef.current[i];
-            const obj2 = cubesRef.current[j];
+            const obj1 = cubesRefValue[i];
+            const obj2 = cubesRefValue[j];
             const vel1 = velocitiesRef.current[i];
             const vel2 = velocitiesRef.current[j];
             
@@ -280,16 +281,16 @@ const BackgroundAnimation = () => {
       window.removeEventListener('resize', handleResize);
       
       // Use the saved container reference
-      if (renderer.domElement && container.contains(renderer.domElement)) {
+      if (container && renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
       renderer.dispose();
       
-      // Store a copy of the cubes array to avoid the ref warning
-      const cubes = [...cubesRef.current];
+      // Use the saved copy of cubesRef values from effect scope
+      const cubesCopy = [...cubesRefValue];
       
       // Clean up other resources
-      cubes.forEach(cube => {
+      cubesCopy.forEach(cube => {
         if (cube.geometry) cube.geometry.dispose();
         if (cube.material) {
           if (Array.isArray(cube.material)) {

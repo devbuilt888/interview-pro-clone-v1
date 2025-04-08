@@ -70,7 +70,7 @@ export default function PuppeteerTestPage() {
         </p>
         <ul className="list-disc ml-6 text-amber-800 mt-2">
           <li>First converts the PDF to a high-quality image</li>
-          <li>Then sends the image to OpenAI's GPT-4o Vision API</li>
+          <li>Then sends the image to OpenAI&apos;s GPT-4o Vision API</li>
           <li>Works seamlessly on both local development and Vercel environments</li>
         </ul>
         <p className="text-amber-700 mt-2">
