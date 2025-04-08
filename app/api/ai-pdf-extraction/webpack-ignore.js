@@ -8,23 +8,29 @@ let chromium;
 
 // Use a try-catch to handle import failures gracefully
 try {
-  // Try to import puppeteer-core directly
+  // First try puppeteer-core which is more lightweight
   puppeteer = require('puppeteer-core');
-} catch (e) {
-  console.warn('Failed to import puppeteer-core, using fallback empty implementation');
-  // Provide minimal implementation if import fails
-  puppeteer = {
-    launch: () => Promise.resolve({
-      newPage: () => Promise.resolve({
-        goto: () => Promise.resolve(),
-        setViewport: () => Promise.resolve(),
-        screenshot: () => Promise.resolve(),
-        waitForTimeout: () => Promise.resolve(),
+} catch (e1) {
+  try {
+    // If that fails, try the full puppeteer package
+    console.warn('Failed to import puppeteer-core, trying puppeteer');
+    puppeteer = require('puppeteer');
+  } catch (e2) {
+    console.warn('Failed to import puppeteer packages, using fallback implementation');
+    // Provide minimal implementation if imports fail
+    puppeteer = {
+      launch: () => Promise.resolve({
+        newPage: () => Promise.resolve({
+          goto: () => Promise.resolve(),
+          setViewport: () => Promise.resolve(),
+          screenshot: () => Promise.resolve(),
+          waitForTimeout: () => Promise.resolve(),
+          close: () => Promise.resolve()
+        }),
         close: () => Promise.resolve()
-      }),
-      close: () => Promise.resolve()
-    })
-  };
+      })
+    };
+  }
 }
 
 try {
@@ -50,13 +56,14 @@ try {
 }
 
 /**
- * Check if we're in a Vercel environment
+ * Enhanced check if we're in a Vercel environment
  * More reliable detection using multiple environment variables
  */
 const isVercelProduction = process.env.VERCEL === '1' || 
                           !!process.env.VERCEL_URL || 
                           !!process.env.VERCEL_REGION ||
-                          !!process.env.VERCEL_ENV;
+                          !!process.env.VERCEL_ENV ||
+                          process.env.NODE_ENV === 'production';
 
 /**
  * Get Chrome executable path based on the environment
@@ -64,7 +71,7 @@ const isVercelProduction = process.env.VERCEL === '1' ||
 async function getChromePath() {
   try {
     // Check for Vercel environment using multiple indicators
-    if (process.env.VERCEL || process.env.VERCEL_URL || process.env.VERCEL_REGION) {
+    if (isVercelProduction) {
       console.log('Running in Vercel environment');
       
       // In Vercel, we want to use the default Chromium from chrome-aws-lambda if possible
@@ -88,7 +95,25 @@ async function getChromePath() {
     if (process.platform === 'win32') {
       return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
     } else if (process.platform === 'linux') {
-      return '/usr/bin/google-chrome';
+      // Check common Linux Chrome/Chromium locations
+      const possiblePaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser'
+      ];
+      
+      for (const path of possiblePaths) {
+        try {
+          if (require('fs').existsSync(path)) {
+            return path;
+          }
+        } catch (e) {
+          // Ignore error and continue
+        }
+      }
+      
+      return '/usr/bin/google-chrome'; // Default fallback
     } else {
       return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
     }

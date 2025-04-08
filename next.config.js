@@ -13,6 +13,8 @@ const nextConfig = {
   },
   // Simplified webpack configuration for Vercel
   webpack: (config, options) => {
+    const { isServer } = options;
+    
     // Resolve critical dependency issue
     config.module.exprContextCritical = false;
     
@@ -30,6 +32,18 @@ const nextConfig = {
         [builtin]: false,
       };
     });
+    
+    // Add additional fallbacks for browser APIs
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      child_process: false,
+      crypto: false,
+      os: false,
+      http2: false,
+      net: false,
+      tls: false,
+      dns: false
+    };
     
     // Completely ignore canvas dependency
     config.externals.push(function(context, request, callback) {
@@ -63,6 +77,12 @@ const nextConfig = {
       ]
     });
     
+    // Handle problematic files in puppeteer packages
+    config.module.rules.push({
+      test: /\.node$/,
+      use: 'node-loader',
+    });
+    
     // Provide specific modules for chrome-aws-lambda
     config.plugins.push(
       new options.webpack.ProvidePlugin({
@@ -71,14 +91,14 @@ const nextConfig = {
     );
     
     // Avoid bundling chrome-aws-lambda on the client
-    if (!options.isServer) {
+    if (!isServer) {
       config.resolve.alias['chrome-aws-lambda'] = path.resolve(__dirname, './app/api/ai-pdf-extraction/client-shim.js');
-      config.resolve.alias['puppeteer'] = false;
-      config.resolve.alias['puppeteer-core'] = false;
+      config.resolve.alias['puppeteer'] = path.resolve(__dirname, './app/api/ai-pdf-extraction/client-shim.js');
+      config.resolve.alias['puppeteer-core'] = path.resolve(__dirname, './app/api/ai-pdf-extraction/client-shim.js');
     }
     
     // For server-side, ensure these modules are bundled correctly
-    if (options.isServer) {
+    if (isServer) {
       // Filter out chrome-aws-lambda and puppeteer from externals
       if (Array.isArray(config.externals)) {
         config.externals = config.externals.filter(external => {
@@ -104,7 +124,7 @@ const nextConfig = {
     return config;
   },
   // Transpile specific modules that might cause issues
-  transpilePackages: ['ai', 'pdfjs-dist'],
+  transpilePackages: ['ai', 'pdfjs-dist', 'chrome-aws-lambda', 'puppeteer-core'],
   // Add server caching for static resources
   async headers() {
     return [
@@ -118,6 +138,16 @@ const nextConfig = {
         ],
       }
     ];
+  },
+  // Disable output file tracing for the API routes with Puppeteer
+  experimental: {
+    outputFileTracingExcludes: {
+      '/api/ai-pdf-extraction/**': [
+        '**/node_modules/puppeteer/**',
+        '**/node_modules/puppeteer-core/**',
+        '**/node_modules/chrome-aws-lambda/**'
+      ]
+    }
   }
 };
 

@@ -64,16 +64,37 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
     
     // Only set the executablePath if we're running locally
     if (!isVercelProduction) {
-      const executablePath = await getChromePath();
-      if (executablePath) {
-        options.executablePath = executablePath;
+      try {
+        const executablePath = await getChromePath();
+        if (executablePath) {
+          options.executablePath = executablePath;
+          console.log('Using local Chrome path:', executablePath);
+        } else {
+          console.log('No executablePath found, using default');
+        }
+      } catch (chromPathError) {
+        console.error('Error getting Chrome path:', chromPathError);
+        // Continue without executablePath - Puppeteer will use its default
       }
+    } else {
+      console.log('Running in Vercel environment, using default browser');
     }
     
-    // Launch a headless browser
-    const browser = await puppeteer.launch(options);
-    
+    let browser;
     try {
+      // Launch a headless browser with timeout and retry logic
+      console.log('Launching browser with options:', JSON.stringify(options, null, 2));
+      browser = await puppeteer.launch(options).catch(async (err) => {
+        console.error('First browser launch attempt failed:', err);
+        // Try one more time with even more minimal options
+        const fallbackOptions = {
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          headless: true
+        };
+        console.log('Retrying with fallback options');
+        return await puppeteer.launch(fallbackOptions);
+      });
+      
       // Create a new page
       const page = await browser.newPage();
       
@@ -94,6 +115,7 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
       
       // Close the browser
       await browser.close();
+      browser = null;
       
       // Read the generated image
       if (fs.existsSync(outputPath)) {
@@ -113,10 +135,25 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
       } else {
         throw new Error('Image file was not created');
       }
-    } finally {
-      // Ensure browser is closed even if an error occurs
+    } catch (error) {
+      console.error('Error in PDF-to-image conversion:', error);
+      // Ensure browser is closed in case of errors
       if (browser) {
-        await browser.close().catch(err => console.error('Error closing browser:', err));
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.error('Error closing browser after error:', closeError);
+        }
+      }
+      throw error;
+    } finally {
+      // Double-check that browser is closed
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (finalCloseError) {
+          console.error('Error in final browser close:', finalCloseError);
+        }
       }
     }
   } catch (error) {

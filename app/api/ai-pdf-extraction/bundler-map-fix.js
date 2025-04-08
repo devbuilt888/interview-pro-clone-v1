@@ -7,4 +7,21 @@
 module.exports = function fixMapFileProcessing(source) {
   // Return an empty module to prevent errors
   return 'module.exports = {};';
+};
+
+// Additional exports for puppeteer compatibility
+module.exports.chromium = {
+  executablePath: null,
+  headless: true,
+  args: [],
+  defaultViewport: null
+};
+
+// Provide mock implementations for commonly used puppeteer modules
+module.exports.puppeteerCore = {
+  launch: () => Promise.resolve({})
+};
+
+module.exports.puppeteer = {
+  launch: () => Promise.resolve({})
 }; 
