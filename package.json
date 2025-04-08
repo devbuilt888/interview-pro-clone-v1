@@ -6,15 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "postinstall": "node setup-chromium.js"
+    "lint": "next lint"
   },
   "dependencies": {
     "@livekit/agents": "^0.7.1",
     "@livekit/agents-plugin-openai": "^0.3.0",
     "@livekit/components-react": "^2.8.1",
     "@livekit/components-styles": "^1.1.4",
-    "@sparticuz/chromium-min": "^133.0.0",
     "@types/formidable": "^3.4.5",
     "@types/react": "18.2.20",
     "@types/react-dom": "18.2.7",
@@ -38,7 +36,7 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
-    "puppeteer-core": "^24.6.0",
+    "puppeteer-core": "^10.4.0",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
     "react-dom": "18.2.0",

@@ -4,8 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import puppeteerCore from 'puppeteer-core';
-import chromium from '@sparticuz/chromium-min';
-import { getChromeExecutablePath } from '../../utils/chromeExecutablePath';
+import chromeLambda from 'chrome-aws-lambda';
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -14,6 +13,26 @@ const openai = new OpenAI({
 
 // PDF size limit in bytes (20MB)
 const MAX_PDF_SIZE = 20 * 1024 * 1024;
+
+/**
+ * Get Chrome executable path based on the environment
+ */
+async function getChromePath() {
+  // Check if we're in a serverless environment (Vercel or AWS Lambda)
+  if (process.env.AWS_REGION || process.env.VERCEL) {
+    // Use chrome-aws-lambda's path
+    return await chromeLambda.executablePath;
+  }
+  
+  // For local development, detect the installed Chrome path based on OS
+  if (process.platform === 'win32') {
+    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  } else if (process.platform === 'linux') {
+    return '/usr/bin/google-chrome';
+  } else {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+}
 
 /**
  * Convert PDF to image using puppeteer-core with chrome-aws-lambda
@@ -30,12 +49,14 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
     // Write the PDF buffer to a file
     fs.writeFileSync(pdfPath, pdfBuffer);
     
-    // Set up browser options based on environment
-    const executablePath = await getChromeExecutablePath();
+    // Configure browser options based on environment
+    const isServerless = !!(process.env.AWS_REGION || process.env.VERCEL);
     const options = {
-      args: process.env.VERCEL ? chromium.args : ['--no-sandbox', '--disable-setuid-sandbox'],
-      executablePath,
+      args: chromeLambda.args,
+      defaultViewport: { width: 1600, height: 1200, deviceScaleFactor: 2 },
+      executablePath: await getChromePath(),
       headless: true,
+      ignoreHTTPSErrors: true
     };
     
     // Launch a headless browser
@@ -45,9 +66,6 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
       // Create a new page
       const page = await browser.newPage();
       
-      // Set viewport size
-      await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 });
-      
       // Navigate to the PDF file using file:// protocol
       await page.goto(`file://${pdfPath}`, {
         waitUntil: 'networkidle0',
@@ -55,7 +73,7 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
       });
       
       // Wait a moment for PDF to render
-      await new Promise(r => setTimeout(r, 1000));
+      await page.waitForTimeout(1000);
       
       // Take a screenshot
       await page.screenshot({ path: outputPath, fullPage: true });
