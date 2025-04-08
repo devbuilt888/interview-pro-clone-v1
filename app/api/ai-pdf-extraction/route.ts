@@ -216,8 +216,8 @@ export async function POST(request: NextRequest) {
             text: "Extract all text content from this PDF. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
           },
           {
-            type: "file_attachment",
-            file_attachment: {
+            type: "file",
+            file: {
               type: "application/pdf",
               data: base64Data
             }
