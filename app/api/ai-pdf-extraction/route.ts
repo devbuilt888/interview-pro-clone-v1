@@ -187,20 +187,33 @@ export async function POST(request: NextRequest) {
       
       console.log('Successfully converted PDF to image');
       
-      // Create content array for OpenAI API - always use image_url approach
-      const content = [
-        { 
-          type: "text" as const, 
-          text: "Extract all text content from this PDF page image. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
-        },
-        {
-          type: "image_url" as const,
-          image_url: {
-            url: `data:image/png;base64,${imageBase64}`,
-            detail: "high" as const
-          }
+      // Create a properly formatted data URL with proper MIME type
+      // Ensure it doesn't exceed OpenAI's size limits by compressing if needed
+      const dataUrl = `data:image/png;base64,${imageBase64}`;
+      
+      // Check image size
+      const approximateImageSizeInMB = (dataUrl.length * 3/4) / (1024 * 1024);
+      console.log(`Approximate image size: ${approximateImageSizeInMB.toFixed(2)}MB`);
+      
+      // If the image is too large (OpenAI has ~20MB limit), we should implement compression
+      // For now, we'll just warn about it
+      if (approximateImageSizeInMB > 15) {
+        console.warn('Warning: Image size is very large and may exceed OpenAI limits');
+      }
+      
+      // Create a properly typed content array for the OpenAI API
+      const textContent = {
+        type: "text" as const,
+        text: "Extract all text content from this PDF page image. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text."
+      };
+      
+      const imageContent = {
+        type: "image_url" as const,
+        image_url: {
+          url: dataUrl,
+          detail: "high" as const
         }
-      ];
+      };
       
       console.log('Sending PDF image to OpenAI GPT-4o for text extraction...');
       
@@ -209,7 +222,7 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: "user",
-            content: content
+            content: [textContent, imageContent]
           }
         ],
         max_tokens: 4096
@@ -260,6 +273,8 @@ export async function POST(request: NextRequest) {
         errorMessage = 'The PDF content violates OpenAI content policy.';
       } else if (aiError.message?.includes('invalid_image_format') || aiError.message?.includes('Invalid MIME type')) {
         errorMessage = 'Error converting PDF to image format. Try with a different PDF file.';
+      } else if (aiError.message?.includes('file_id')) {
+        errorMessage = 'Error with file format. The application is using image-based extraction which may not be compatible with your current environment.';
       }
       
       return NextResponse.json(
