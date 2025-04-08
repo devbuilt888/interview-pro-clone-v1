@@ -52,42 +52,53 @@ const nextConfig = {
       },
     });
     
-    // Add rule to ignore source map files in chrome-aws-lambda
+    // Explicitly handle chrome-aws-lambda and puppeteer source maps and dependencies
     config.module.rules.push({
       test: /\.map$/,
-      loader: 'ignore-loader',
-      include: /node_modules[\\/]chrome-aws-lambda/,
+      use: 'ignore-loader',
+      include: [
+        /node_modules[\\/]chrome-aws-lambda/,
+        /node_modules[\\/]puppeteer/,
+        /node_modules[\\/]puppeteer-core/
+      ]
     });
     
-    // Prevent chrome-aws-lambda from being bundled on the client side
+    // Provide specific modules for chrome-aws-lambda
+    config.plugins.push(
+      new options.webpack.ProvidePlugin({
+        Buffer: ['buffer', 'Buffer'],
+      })
+    );
+    
+    // Avoid bundling chrome-aws-lambda on the client
     if (!options.isServer) {
-      if (!config.resolve) {
-        config.resolve = { alias: {} };
-      }
-      
-      if (!config.resolve.alias) {
-        config.resolve.alias = {};
-      }
-      
-      config.resolve.alias['chrome-aws-lambda'] = false;
+      config.resolve.alias['chrome-aws-lambda'] = path.resolve(__dirname, './app/api/ai-pdf-extraction/client-shim.js');
+      config.resolve.alias['puppeteer'] = false;
+      config.resolve.alias['puppeteer-core'] = false;
     }
     
-    // Configure server-side bundling for chrome-aws-lambda and puppeteer-core
+    // For server-side, ensure these modules are bundled correctly
     if (options.isServer) {
-      if (!config.externals) {
-        config.externals = [];
+      // Filter out chrome-aws-lambda and puppeteer from externals
+      if (Array.isArray(config.externals)) {
+        config.externals = config.externals.filter(external => {
+          if (typeof external === 'function') {
+            const externalString = external.toString();
+            return !(
+              externalString.includes('chrome-aws-lambda') || 
+              externalString.includes('puppeteer-core') ||
+              externalString.includes('puppeteer')
+            );
+          }
+          return true;
+        });
       }
       
-      // Ensure the packages are bundled properly on the server
-      const includes = ['chrome-aws-lambda', 'puppeteer-core'];
-      const filteredExternals = config.externals.filter(external => {
-        if (typeof external !== 'function') return true;
-        // Keep the external if it's not for the packages we want to bundle
-        return !includes.some(include => 
-          external.toString().includes(include));
-      });
-      
-      config.externals = filteredExternals;
+      // Add critical dependencies to output as modules
+      config.output = {
+        ...config.output,
+        strictModuleExceptionHandling: true
+      };
     }
     
     return config;

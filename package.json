@@ -20,6 +20,7 @@
     "@vercel/analytics": "^1.2.2",
     "ai": "^2.2.31",
     "autoprefixer": "10.4.15",
+    "bufferutil": "^4.0.8",
     "canvas-shim": "file:./canvas-pkg",
     "chrome-aws-lambda": "10.1.0",
     "encoding": "^0.1.13",
@@ -28,6 +29,7 @@
     "formidable": "^3.5.1",
     "fs": "^0.0.1-security",
     "html2canvas": "^1.4.1",
+    "ignore-loader": "^0.1.2",
     "livekit-client": "^2.9.8",
     "livekit-server-sdk": "^2.10.2",
     "next": "13.4.19",
@@ -36,6 +38,7 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
+    "puppeteer": "10.4.0",
     "puppeteer-core": "10.4.0",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
@@ -43,11 +46,11 @@
     "say": "^0.16.0",
     "sharp": "^0.34.0",
     "three": "^0.174.0",
-    "tsx": "^4.7.1"
+    "tsx": "^4.7.1",
+    "utf-8-validate": "^5.0.10"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "ignore-loader": "^0.1.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },
@@ -57,7 +60,8 @@
     "path": false,
     "os": false,
     "chrome-aws-lambda": false,
-    "puppeteer-core": false
+    "puppeteer-core": false,
+    "puppeteer": false
   },
   "browserslist": [
     "last 2 Chrome versions",
@@ -68,12 +72,14 @@
     "canvas": "file:./canvas-pkg",
     "pdfjs-dist": "2.16.105",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "10.4.0"
+    "puppeteer-core": "10.4.0",
+    "puppeteer": "10.4.0"
   },
   "overrides": {
     "canvas": "file:./canvas-pkg",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "10.4.0"
+    "puppeteer-core": "10.4.0",
+    "puppeteer": "10.4.0"
   },
   "peerDependencies": {
     "canvas": "*"

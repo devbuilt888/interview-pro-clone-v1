@@ -3,7 +3,9 @@ import OpenAI from 'openai';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { puppeteer, chromium, getChromePath } from './webpack-ignore';
+
+// Dynamic import for webpack bundling issues
+const { puppeteer, chromium, getChromePath } = require('./webpack-ignore');
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -14,11 +16,11 @@ const openai = new OpenAI({
 const MAX_PDF_SIZE = 20 * 1024 * 1024;
 
 /**
- * Convert PDF to image using puppeteer-core with chrome-aws-lambda
+ * Convert PDF to image using puppeteer-core
  */
 async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
   try {
-    console.log('Starting PDF conversion with puppeteer-core...');
+    console.log('Starting PDF conversion with puppeteer...');
     
     // Create a temporary directory for the PDF file
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const pdfBuffer = Buffer.from(arrayBuffer);
     
-    console.log('Converting PDF to image using puppeteer-core...');
+    console.log('Converting PDF to image using puppeteer...');
     
     try {
       // Convert PDF to image

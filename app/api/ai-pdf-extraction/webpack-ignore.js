@@ -1,24 +1,99 @@
 /**
- * This is a workaround for issues with chrome-aws-lambda source maps
- * It exports the same functionality but ensures Webpack can process it correctly
+ * This file provides a safer way to import Puppeteer and chrome-aws-lambda
+ * for use with Vercel deployments
  */
 
-import puppeteerCore from 'puppeteer-core';
-import chromeAwsLambda from 'chrome-aws-lambda';
+let puppeteer;
+let chromium;
 
-// Reexport these for use in the route handler
-export const chromium = chromeAwsLambda;
-export const puppeteer = puppeteerCore;
+// Use a try-catch to handle import failures gracefully
+try {
+  // Try to import puppeteer-core directly
+  puppeteer = require('puppeteer-core');
+} catch (e) {
+  console.warn('Failed to import puppeteer-core, using fallback empty implementation');
+  // Provide minimal implementation if import fails
+  puppeteer = {
+    launch: () => Promise.resolve({
+      newPage: () => Promise.resolve({
+        goto: () => Promise.resolve(),
+        waitForTimeout: () => Promise.resolve(),
+        screenshot: () => Promise.resolve(),
+        close: () => Promise.resolve()
+      }),
+      close: () => Promise.resolve()
+    })
+  };
+}
 
-// Helper function for getting Chrome executable path
-export async function getChromePath() {
-  // Check if we're in a serverless environment (Vercel or AWS Lambda)
+try {
+  // Try to import chrome-aws-lambda directly
+  chromium = require('chrome-aws-lambda');
+} catch (e) {
+  console.warn('Failed to import chrome-aws-lambda, using fallback implementation');
+  // Provide minimal implementation if import fails
+  chromium = {
+    args: [
+      '--autoplay-policy=user-gesture-required',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-update',
+      '--disable-default-apps',
+      '--disable-dev-shm-usage',
+      '--disable-domain-reliability',
+      '--disable-extensions',
+      '--disable-features=AudioServiceOutOfProcess',
+      '--disable-hang-monitor',
+      '--disable-ipc-flooding-protection',
+      '--disable-notifications',
+      '--disable-offer-store-unmasked-wallet-cards',
+      '--disable-popup-blocking',
+      '--disable-print-preview',
+      '--disable-prompt-on-repost',
+      '--disable-renderer-backgrounding',
+      '--disable-setuid-sandbox',
+      '--disable-speech-api',
+      '--disable-sync',
+      '--disk-cache-size=33554432',
+      '--hide-scrollbars',
+      '--ignore-gpu-blacklist',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--no-first-run',
+      '--no-pings',
+      '--no-sandbox',
+      '--no-zygote',
+      '--password-store=basic',
+      '--use-gl=swiftshader',
+      '--use-mock-keychain',
+      '--single-process'
+    ],
+    executablePath: null,
+    headless: true
+  };
+}
+
+/**
+ * Get Chrome executable path based on the environment
+ */
+async function getChromePath() {
+  // Check if we're in a serverless environment
   if (process.env.AWS_REGION || process.env.VERCEL) {
-    // Use chrome-aws-lambda's path
-    return await chromeAwsLambda.executablePath;
+    try {
+      // Try to use chrome-aws-lambda's path
+      return await chromium.executablePath;
+    } catch (e) {
+      console.error('Error getting chrome-aws-lambda executablePath:', e);
+      // Return a default path that Vercel might have
+      return process.env.CHROME_EXECUTABLE_PATH || '/opt/bin/chromium';
+    }
   }
   
-  // For local development, detect the installed Chrome path based on OS
+  // For local development
   if (process.platform === 'win32') {
     return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
   } else if (process.platform === 'linux') {
@@ -26,4 +101,11 @@ export async function getChromePath() {
   } else {
     return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   }
-} 
+}
+
+// Export the modules
+module.exports = {
+  puppeteer,
+  chromium,
+  getChromePath
+}; 

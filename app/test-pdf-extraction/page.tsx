@@ -91,7 +91,7 @@ export default function TestPdfExtraction() {
       
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6">
         <h2 className="text-lg font-semibold text-blue-700 mb-2">New Implementation: Vercel-Compatible</h2>
-        <p className="mb-2">We've implemented a Vercel-friendly PDF extraction approach using older puppeteer-core (v10.4.0) for build compatibility:</p>
+        <p className="mb-2">We&apos;ve implemented a Vercel-friendly PDF extraction approach using older puppeteer-core (v10.4.0) for build compatibility:</p>
         <ul className="list-disc ml-6 mb-3 text-blue-800">
           <li>Converts PDF first page to high-quality image</li>
           <li>Uses GPT-4o Vision for accurate text extraction</li>
