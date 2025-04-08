@@ -3,8 +3,7 @@ import OpenAI from 'openai';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import puppeteerCore from 'puppeteer-core';
-import chromeLambda from 'chrome-aws-lambda';
+import { puppeteer, chromium, getChromePath } from './webpack-ignore';
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -13,26 +12,6 @@ const openai = new OpenAI({
 
 // PDF size limit in bytes (20MB)
 const MAX_PDF_SIZE = 20 * 1024 * 1024;
-
-/**
- * Get Chrome executable path based on the environment
- */
-async function getChromePath() {
-  // Check if we're in a serverless environment (Vercel or AWS Lambda)
-  if (process.env.AWS_REGION || process.env.VERCEL) {
-    // Use chrome-aws-lambda's path
-    return await chromeLambda.executablePath;
-  }
-  
-  // For local development, detect the installed Chrome path based on OS
-  if (process.platform === 'win32') {
-    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-  } else if (process.platform === 'linux') {
-    return '/usr/bin/google-chrome';
-  } else {
-    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  }
-}
 
 /**
  * Convert PDF to image using puppeteer-core with chrome-aws-lambda
@@ -52,7 +31,7 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
     // Configure browser options based on environment
     const isServerless = !!(process.env.AWS_REGION || process.env.VERCEL);
     const options = {
-      args: chromeLambda.args,
+      args: chromium.args,
       defaultViewport: { width: 1600, height: 1200, deviceScaleFactor: 2 },
       executablePath: await getChromePath(),
       headless: true,
@@ -60,7 +39,7 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
     };
     
     // Launch a headless browser
-    const browser = await puppeteerCore.launch(options);
+    const browser = await puppeteer.launch(options);
     
     try {
       // Create a new page

@@ -21,7 +21,7 @@
     "ai": "^2.2.31",
     "autoprefixer": "10.4.15",
     "canvas-shim": "file:./canvas-pkg",
-    "chrome-aws-lambda": "^10.1.0",
+    "chrome-aws-lambda": "10.1.0",
     "encoding": "^0.1.13",
     "eslint": "8.47.0",
     "eslint-config-next": "13.4.19",
@@ -36,7 +36,7 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
-    "puppeteer-core": "^10.4.0",
+    "puppeteer-core": "10.4.0",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
     "react-dom": "18.2.0",
@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "ignore-loader": "^0.1.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   },
@@ -54,7 +55,9 @@
     "canvas": false,
     "fs": false,
     "path": false,
-    "os": false
+    "os": false,
+    "chrome-aws-lambda": false,
+    "puppeteer-core": false
   },
   "browserslist": [
     "last 2 Chrome versions",
@@ -63,10 +66,14 @@
   ],
   "resolutions": {
     "canvas": "file:./canvas-pkg",
-    "pdfjs-dist": "2.16.105"
+    "pdfjs-dist": "2.16.105",
+    "chrome-aws-lambda": "10.1.0",
+    "puppeteer-core": "10.4.0"
   },
   "overrides": {
-    "canvas": "file:./canvas-pkg"
+    "canvas": "file:./canvas-pkg",
+    "chrome-aws-lambda": "10.1.0",
+    "puppeteer-core": "10.4.0"
   },
   "peerDependencies": {
     "canvas": "*"

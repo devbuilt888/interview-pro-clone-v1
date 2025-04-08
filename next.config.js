@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
+const fs = require('fs');
 
 const nextConfig = {
   images: {
@@ -11,7 +12,7 @@ const nextConfig = {
     ],
   },
   // Simplified webpack configuration for Vercel
-  webpack: (config, { isServer }) => {
+  webpack: (config, options) => {
     // Resolve critical dependency issue
     config.module.exprContextCritical = false;
     
@@ -50,6 +51,44 @@ const nextConfig = {
         filename: 'static/chunks/[name].[hash][ext]',
       },
     });
+    
+    // Add rule to ignore source map files in chrome-aws-lambda
+    config.module.rules.push({
+      test: /\.map$/,
+      loader: 'ignore-loader',
+      include: /node_modules[\\/]chrome-aws-lambda/,
+    });
+    
+    // Prevent chrome-aws-lambda from being bundled on the client side
+    if (!options.isServer) {
+      if (!config.resolve) {
+        config.resolve = { alias: {} };
+      }
+      
+      if (!config.resolve.alias) {
+        config.resolve.alias = {};
+      }
+      
+      config.resolve.alias['chrome-aws-lambda'] = false;
+    }
+    
+    // Configure server-side bundling for chrome-aws-lambda and puppeteer-core
+    if (options.isServer) {
+      if (!config.externals) {
+        config.externals = [];
+      }
+      
+      // Ensure the packages are bundled properly on the server
+      const includes = ['chrome-aws-lambda', 'puppeteer-core'];
+      const filteredExternals = config.externals.filter(external => {
+        if (typeof external !== 'function') return true;
+        // Keep the external if it's not for the packages we want to bundle
+        return !includes.some(include => 
+          external.toString().includes(include));
+      });
+      
+      config.externals = filteredExternals;
+    }
     
     return config;
   },
