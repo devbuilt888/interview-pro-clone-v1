@@ -17,8 +17,9 @@ try {
     launch: () => Promise.resolve({
       newPage: () => Promise.resolve({
         goto: () => Promise.resolve(),
-        waitForTimeout: () => Promise.resolve(),
+        setViewport: () => Promise.resolve(),
         screenshot: () => Promise.resolve(),
+        waitForTimeout: () => Promise.resolve(),
         close: () => Promise.resolve()
       }),
       close: () => Promise.resolve()
@@ -80,38 +81,31 @@ try {
 /**
  * Check if we're in a Vercel production environment
  */
-const isVercelProduction = !!process.env.VERCEL && process.env.NODE_ENV === 'production';
+const isVercelProduction = process.env.VERCEL === '1';
 
 /**
  * Get Chrome executable path based on the environment
  */
 async function getChromePath() {
-  // Check if we're in a serverless environment like Vercel
-  if (process.env.AWS_REGION || process.env.VERCEL) {
-    try {
-      // If we're in Vercel production, we must use the browser endpoint instead
-      if (isVercelProduction) {
-        // Return null to force using the args without executablePath
-        // This signals to Puppeteer to use the remote browser
-        return null;
-      }
-      
-      // Try to use chrome-aws-lambda's path for other serverless environments
-      return await chromium.executablePath;
-    } catch (e) {
-      console.error('Error getting chrome-aws-lambda executablePath:', e);
-      // Return null to force using browserless.io
+  try {
+    // If we're in a special environment, try to handle it accordingly
+    if (process.env.VERCEL) {
+      console.log('Running in Vercel environment');
+      // In Vercel, we don't want to specify an executablePath
       return null;
     }
-  }
-  
-  // For local development
-  if (process.platform === 'win32') {
-    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-  } else if (process.platform === 'linux') {
-    return '/usr/bin/google-chrome';
-  } else {
-    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    
+    // For local development
+    if (process.platform === 'win32') {
+      return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    } else if (process.platform === 'linux') {
+      return '/usr/bin/google-chrome';
+    } else {
+      return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    }
+  } catch (error) {
+    console.error('Error determining Chrome path:', error);
+    return null;
   }
 }
 

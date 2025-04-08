@@ -98,13 +98,13 @@ export default function TestPdfExtraction() {
       <h1 className="text-2xl font-bold mb-6">Test PDF Text Extraction</h1>
       
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6">
-        <h2 className="text-lg font-semibold text-blue-700 mb-2">Environment-Aware PDF Extraction</h2>
-        <p className="mb-2">Our PDF extraction solution automatically adapts to your environment:</p>
+        <h2 className="text-lg font-semibold text-blue-700 mb-2">Reliable PDF Text Extraction</h2>
+        <p className="mb-2">Our PDF text extraction uses a consistent approach across all environments:</p>
         <ul className="list-disc ml-6 mb-3 text-blue-800">
-          <li>Local development: Uses puppeteer for PDF-to-image conversion</li>
-          <li>Vercel deployment: Sends PDFs directly to GPT-4o (supported natively)</li>
-          <li>Works seamlessly in both environments without configuration</li>
-          <li>Produces consistent text extraction results</li>
+          <li>High-quality image generation from PDFs</li>
+          <li>OpenAI GPT-4o Vision for accurate text recognition</li>
+          <li>Compatible with both local development and Vercel</li>
+          <li>Maintains layout, formatting, and structure</li>
         </ul>
         {isClient && (
           <a href="/test-pdf-extraction/puppeteer-test" className="text-blue-600 hover:text-blue-800 font-medium underline">

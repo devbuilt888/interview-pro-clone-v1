@@ -22,13 +22,9 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
   try {
     console.log('Starting PDF conversion...');
     
-    // If running on Vercel production, use a different approach to handle PDFs
-    if (isVercelProduction) {
-      return await convertPdfUsingVercelMethod(pdfBuffer);
-    }
-    
-    // Otherwise, use the regular puppeteer approach for local development
-    return await convertPdfUsingPuppeteer(pdfBuffer);
+    // Always use the same method, whether on Vercel or local development
+    // This simplifies our approach and avoids compatibility issues
+    return await createImageFromPdf(pdfBuffer);
   } catch (error) {
     console.error('Error converting PDF to image:', error);
     throw error;
@@ -36,42 +32,11 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
 }
 
 /**
- * Alternative method for Vercel that doesn't use Chrome/Puppeteer
+ * Universal method to convert PDF to image (works on both environments)
  */
-async function convertPdfUsingVercelMethod(pdfBuffer: Buffer): Promise<string> {
+async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
   try {
-    // Create a temporary directory for the PDF file
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
-    const pdfPath = path.join(tempDir, 'document.pdf');
-    
-    // Write the PDF buffer to a file
-    fs.writeFileSync(pdfPath, pdfBuffer);
-    
-    // Method 1: Use OpenAI directly with the PDF
-    // This sends the PDF directly to OpenAI which can now process PDFs directly
-    const base64Pdf = pdfBuffer.toString('base64');
-    
-    // Clean up temporary files
-    try {
-      fs.unlinkSync(pdfPath);
-      fs.rmdirSync(tempDir);
-    } catch (cleanupError) {
-      console.error('Error cleaning up temporary files:', cleanupError);
-    }
-    
-    return base64Pdf;
-  } catch (error) {
-    console.error('Error in Vercel PDF conversion:', error);
-    throw error;
-  }
-}
-
-/**
- * Original method using puppeteer for local development
- */
-async function convertPdfUsingPuppeteer(pdfBuffer: Buffer): Promise<string> {
-  try {
-    console.log('Using Puppeteer for PDF conversion...');
+    console.log('Creating image from PDF...');
     
     // Create a temporary directory for the PDF file
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
@@ -81,15 +46,29 @@ async function convertPdfUsingPuppeteer(pdfBuffer: Buffer): Promise<string> {
     // Write the PDF buffer to a file
     fs.writeFileSync(pdfPath, pdfBuffer);
     
-    // Configure browser options based on environment
-    const executablePath = await getChromePath();
-    const options = {
-      args: chromium.args,
-      defaultViewport: { width: 1600, height: 1200, deviceScaleFactor: 2 },
-      executablePath,
+    // Configure browser options
+    const options: any = {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
       headless: true,
       ignoreHTTPSErrors: true
     };
+    
+    // Only set the executablePath if we're running locally
+    if (!isVercelProduction) {
+      const executablePath = await getChromePath();
+      if (executablePath) {
+        options.executablePath = executablePath;
+      }
+    }
     
     // Launch a headless browser
     const browser = await puppeteer.launch(options);
@@ -98,6 +77,9 @@ async function convertPdfUsingPuppeteer(pdfBuffer: Buffer): Promise<string> {
       // Create a new page
       const page = await browser.newPage();
       
+      // Set viewport size
+      await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 });
+      
       // Navigate to the PDF file using file:// protocol
       await page.goto(`file://${pdfPath}`, {
         waitUntil: 'networkidle0',
@@ -105,7 +87,7 @@ async function convertPdfUsingPuppeteer(pdfBuffer: Buffer): Promise<string> {
       });
       
       // Wait a moment for PDF to render
-      await page.waitForTimeout(1000);
+      await new Promise(r => setTimeout(r, 1000));
       
       // Take a screenshot
       await page.screenshot({ path: outputPath, fullPage: true });
@@ -138,7 +120,7 @@ async function convertPdfUsingPuppeteer(pdfBuffer: Buffer): Promise<string> {
       }
     }
   } catch (error) {
-    console.error('Error in Puppeteer PDF conversion:', error);
+    console.error('Error in PDF-to-image conversion:', error);
     throw error;
   }
 }
@@ -197,50 +179,30 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const pdfBuffer = Buffer.from(arrayBuffer);
     
-    console.log('Converting PDF to usable format...');
+    console.log('Converting PDF to image format...');
     
     try {
-      // Determine the most appropriate approach based on the environment
-      const base64Data = await convertPdfToImage(pdfBuffer);
+      // Convert PDF to image format
+      const imageBase64 = await convertPdfToImage(pdfBuffer);
       
-      console.log('Successfully converted PDF');
+      console.log('Successfully converted PDF to image');
       
-      // Create content array for OpenAI API - format will depend on whether we're sending an image or PDF
-      let content: any[] = [];
-      
-      if (isVercelProduction) {
-        // Send the PDF directly to OpenAI (GPT-4o supports PDFs)
-        content = [
-          { 
-            type: "text", 
-            text: "Extract all text content from this PDF. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
-          },
-          {
-            type: "file",
-            file: {
-              type: "application/pdf",
-              data: base64Data
-            }
+      // Create content array for OpenAI API - always use image_url approach
+      const content = [
+        { 
+          type: "text" as const, 
+          text: "Extract all text content from this PDF page image. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
+        },
+        {
+          type: "image_url" as const,
+          image_url: {
+            url: `data:image/png;base64,${imageBase64}`,
+            detail: "high" as const
           }
-        ];
-      } else {
-        // Use the image-based approach for local development
-        content = [
-          { 
-            type: "text", 
-            text: "Extract all text content from this PDF page image. This is likely a resume or document. Maintain the same structure, formatting, and layout of the original text as much as possible. Include headings, bullet points, contact information, and any structured data present in the document. Be comprehensive and extract all visible text." 
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${base64Data}`,
-              detail: "high"
-            }
-          }
-        ];
-      }
+        }
+      ];
       
-      console.log('Sending PDF data to OpenAI GPT-4o for text extraction...');
+      console.log('Sending PDF image to OpenAI GPT-4o for text extraction...');
       
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
