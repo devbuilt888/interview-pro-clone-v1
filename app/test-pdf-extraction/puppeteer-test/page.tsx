@@ -60,8 +60,8 @@ export default function PuppeteerTestPage() {
       
       <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-6">
         <p className="text-amber-700 font-medium">
-          This page uses direct Puppeteer for PDF-to-image conversion and OpenAI GPT-4o Vision to extract text. 
-          This approach avoids compatibility issues with pdf-puppeteer library.
+          This page uses puppeteer-core with @sparticuz/chromium-min for PDF-to-image conversion and OpenAI GPT-4o Vision for text extraction. 
+          This approach is optimized for deployment on Vercel and other serverless environments.
         </p>
       </div>
 

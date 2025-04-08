@@ -3,9 +3,17 @@
   "installCommand": "yarn install",
   "framework": "nextjs",
   "outputDirectory": ".next",
+  "regions": ["iad1"],
+  "functions": {
+    "app/api/ai-pdf-extraction/route.ts": {
+      "memory": 3008,
+      "maxDuration": 60
+    }
+  },
   "build": {
     "env": {
-      "NODE_OPTIONS": "--max-old-space-size=3072"
+      "NODE_OPTIONS": "--max-old-space-size=3072",
+      "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true"
     }
   }
 } 

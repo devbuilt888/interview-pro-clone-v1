@@ -3,7 +3,9 @@ import OpenAI from 'openai';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import puppeteer from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
+import chromium from '@sparticuz/chromium-min';
+import { getChromeExecutablePath } from '../../utils/chromeExecutablePath';
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -14,11 +16,11 @@ const openai = new OpenAI({
 const MAX_PDF_SIZE = 20 * 1024 * 1024;
 
 /**
- * Convert PDF to image using puppeteer directly
+ * Convert PDF to image using puppeteer-core with chrome-aws-lambda
  */
 async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
   try {
-    console.log('Starting PDF conversion with puppeteer...');
+    console.log('Starting PDF conversion with puppeteer-core...');
     
     // Create a temporary directory for the PDF file
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
@@ -28,11 +30,16 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
     // Write the PDF buffer to a file
     fs.writeFileSync(pdfPath, pdfBuffer);
     
-    // Launch a headless browser
-    const browser = await puppeteer.launch({ 
+    // Set up browser options based on environment
+    const executablePath = await getChromeExecutablePath();
+    const options = {
+      args: process.env.VERCEL ? chromium.args : ['--no-sandbox', '--disable-setuid-sandbox'],
+      executablePath,
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    };
+    
+    // Launch a headless browser
+    const browser = await puppeteerCore.launch(options);
     
     try {
       // Create a new page
@@ -140,7 +147,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const pdfBuffer = Buffer.from(arrayBuffer);
     
-    console.log('Converting PDF to image using puppeteer...');
+    console.log('Converting PDF to image using puppeteer-core...');
     
     try {
       // Convert PDF to image
