@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 // Dynamic import for webpack bundling issues
-const { puppeteer, chromium, getChromePath, isVercelProduction } = require('./webpack-ignore');
+const { puppeteer, chromium, getChromePath, getBrowserOptions, isVercelProduction } = require('./webpack-ignore');
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -46,54 +46,54 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
     // Write the PDF buffer to a file
     fs.writeFileSync(pdfPath, pdfBuffer);
     
-    // Configure browser options
-    const options: any = {
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ],
-      headless: true,
-      ignoreHTTPSErrors: true
-    };
-    
-    // Only set the executablePath if we're running locally
-    if (!isVercelProduction) {
-      try {
-        const executablePath = await getChromePath();
-        if (executablePath) {
-          options.executablePath = executablePath;
-          console.log('Using local Chrome path:', executablePath);
-        } else {
-          console.log('No executablePath found, using default');
-        }
-      } catch (chromPathError) {
-        console.error('Error getting Chrome path:', chromPathError);
-        // Continue without executablePath - Puppeteer will use its default
-      }
-    } else {
-      console.log('Running in Vercel environment, using default browser');
-    }
+    // Get optimized browser options for the current environment
+    const options = await getBrowserOptions();
+    console.log('Using browser options:', JSON.stringify({
+      ...options,
+      args: options.args ? `[${options.args.length} args]` : undefined
+    }, null, 2));
     
     let browser;
     try {
-      // Launch a headless browser with timeout and retry logic
-      console.log('Launching browser with options:', JSON.stringify(options, null, 2));
-      browser = await puppeteer.launch(options).catch(async (err) => {
-        console.error('First browser launch attempt failed:', err);
-        // Try one more time with even more minimal options
-        const fallbackOptions = {
+      // Launch browser with optimized settings
+      console.log('Launching browser...');
+      
+      // Try launch with appropriate puppeteer instance
+      try {
+        if (isVercelProduction && chromium && chromium.puppeteer) {
+          console.log('Using chrome-aws-lambda puppeteer');
+          browser = await chromium.puppeteer.launch(options);
+        } else {
+          console.log('Using standard puppeteer');
+          browser = await puppeteer.launch(options);
+        }
+      } catch (launchError: any) {
+        console.error('Browser launch failed:', launchError.message);
+        
+        // Try with minimal options as fallback
+        console.log('Retrying with minimal options');
+        const fallbackOptions: any = {
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
           headless: true
         };
-        console.log('Retrying with fallback options');
-        return await puppeteer.launch(fallbackOptions);
-      });
+        
+        // Keep executable path if available
+        if (options.executablePath) {
+          fallbackOptions.executablePath = options.executablePath;
+        }
+        
+        if (isVercelProduction && chromium && chromium.puppeteer) {
+          browser = await chromium.puppeteer.launch(fallbackOptions);
+        } else {
+          browser = await puppeteer.launch(fallbackOptions);
+        }
+      }
+      
+      if (!browser) {
+        throw new Error('Failed to launch browser');
+      }
+      
+      console.log('Browser launched successfully');
       
       // Create a new page
       const page = await browser.newPage();

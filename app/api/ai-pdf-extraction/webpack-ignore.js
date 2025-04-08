@@ -3,42 +3,90 @@
  * for use with Vercel deployments
  */
 
+// Import our serverless chrome helper first
+const serverlessHelper = require('./serverless-chrome');
+
 let puppeteer;
 let chromium;
 
 // Use a try-catch to handle import failures gracefully
 try {
-  // First try puppeteer-core which is more lightweight
-  puppeteer = require('puppeteer-core');
-} catch (e1) {
-  try {
-    // If that fails, try the full puppeteer package
-    console.warn('Failed to import puppeteer-core, trying puppeteer');
-    puppeteer = require('puppeteer');
-  } catch (e2) {
-    console.warn('Failed to import puppeteer packages, using fallback implementation');
-    // Provide minimal implementation if imports fail
-    puppeteer = {
-      launch: () => Promise.resolve({
-        newPage: () => Promise.resolve({
-          goto: () => Promise.resolve(),
-          setViewport: () => Promise.resolve(),
-          screenshot: () => Promise.resolve(),
-          waitForTimeout: () => Promise.resolve(),
-          close: () => Promise.resolve()
-        }),
-        close: () => Promise.resolve()
-      })
+  // First try chromium from the serverless helper
+  if (serverlessHelper.chromeAWSLambda) {
+    console.log('Using chrome-aws-lambda from serverless helper');
+    chromium = serverlessHelper.chromeAWSLambda;
+    
+    // If chrome-aws-lambda has puppeteer property, use it
+    if (chromium.puppeteer) {
+      console.log('Using bundled puppeteer from chrome-aws-lambda');
+      puppeteer = chromium.puppeteer;
+    }
+  }
+  
+  // If we don't have puppeteer yet, try to import it directly
+  if (!puppeteer) {
+    // Try puppeteer-core first, then fallback to puppeteer
+    try {
+      console.log('Loading puppeteer-core directly');
+      puppeteer = require('puppeteer-core');
+    } catch (e1) {
+      try {
+        console.log('Loading full puppeteer package');
+        puppeteer = require('puppeteer');
+      } catch (e2) {
+        console.warn('Failed to import puppeteer packages, using fallback implementation');
+        // Provide minimal implementation if imports fail
+        puppeteer = {
+          launch: () => Promise.resolve({
+            newPage: () => Promise.resolve({
+              goto: () => Promise.resolve(),
+              setViewport: () => Promise.resolve(),
+              screenshot: () => Promise.resolve(),
+              waitForTimeout: () => Promise.resolve(),
+              close: () => Promise.resolve()
+            }),
+            close: () => Promise.resolve()
+          })
+        };
+      }
+    }
+  }
+  
+  // If we don't have chromium yet, create a minimal implementation
+  if (!chromium) {
+    console.log('Creating minimal chromium implementation');
+    chromium = {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+      executablePath: null,
+      headless: true,
+      puppeteer: puppeteer // Add reference to puppeteer
     };
   }
-}
-
-try {
-  // Try to import chrome-aws-lambda directly
-  chromium = require('chrome-aws-lambda');
-} catch (e) {
-  console.warn('Failed to import chrome-aws-lambda, using fallback implementation');
-  // Provide minimal implementation if import fails
+} catch (generalError) {
+  console.error('Unexpected error initializing puppeteer/chromium:', generalError);
+  // Create fallback implementations for both
+  puppeteer = {
+    launch: () => Promise.resolve({
+      newPage: () => Promise.resolve({
+        goto: () => Promise.resolve(),
+        setViewport: () => Promise.resolve(),
+        screenshot: () => Promise.resolve(),
+        waitForTimeout: () => Promise.resolve(),
+        close: () => Promise.resolve()
+      }),
+      close: () => Promise.resolve()
+    })
+  };
+  
   chromium = {
     args: [
       '--no-sandbox',
@@ -67,28 +115,14 @@ const isVercelProduction = process.env.VERCEL === '1' ||
 
 /**
  * Get Chrome executable path based on the environment
+ * Uses the serverless helper for better compatibility
  */
 async function getChromePath() {
   try {
-    // Check for Vercel environment using multiple indicators
+    // For Vercel environment, use our specialized helper
     if (isVercelProduction) {
-      console.log('Running in Vercel environment');
-      
-      // In Vercel, we want to use the default Chromium from chrome-aws-lambda if possible
-      try {
-        if (chromium.executablePath) {
-          const chromePath = await chromium.executablePath;
-          if (chromePath) {
-            console.log('Using chrome-aws-lambda executable path');
-            return chromePath;
-          }
-        }
-      } catch (err) {
-        console.warn('chrome-aws-lambda path not available:', err);
-      }
-      
-      // If we can't get a path from chrome-aws-lambda, don't specify an executablePath
-      return null;
+      console.log('Getting Chrome path for Vercel environment');
+      return await serverlessHelper.getVercelChromePath();
     }
     
     // For local development, use the system's Chrome installation
@@ -123,10 +157,30 @@ async function getChromePath() {
   }
 }
 
+/**
+ * Get optimized browser options for the current environment
+ */
+async function getBrowserOptions() {
+  if (isVercelProduction) {
+    return await serverlessHelper.getVercelChromeOptions();
+  }
+  
+  // Default options for local development
+  return {
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox'
+    ],
+    headless: true,
+    executablePath: await getChromePath()
+  };
+}
+
 // Export the modules
 module.exports = {
   puppeteer,
   chromium,
   getChromePath,
+  getBrowserOptions,
   isVercelProduction
 }; 
