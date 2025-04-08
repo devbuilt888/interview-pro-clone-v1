@@ -60,8 +60,14 @@ export default function PuppeteerTestPage() {
       
       <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 mb-6">
         <p className="text-amber-700 font-medium">
-          This page uses puppeteer-core (v10.4.0) with chrome-aws-lambda for PDF-to-image conversion and OpenAI GPT-4o Vision for text extraction. 
-          This approach is optimized for compatibility with Vercel&apos;s build environment and avoids ES2022 private class field syntax issues.
+          This page uses the most appropriate method for your environment to extract text from PDF files:
+        </p>
+        <ul className="list-disc ml-6 text-amber-800 mt-2">
+          <li>On local development: puppeteer-core renders the PDF and sends it to GPT-4o as an image</li>
+          <li>On Vercel: PDF is sent directly to GPT-4o which can now process PDF files natively</li>
+        </ul>
+        <p className="text-amber-700 mt-2">
+          Both approaches use OpenAI GPT-4o Vision for accurate text extraction, maintaining the same user experience.
         </p>
       </div>
 

@@ -78,18 +78,30 @@ try {
 }
 
 /**
+ * Check if we're in a Vercel production environment
+ */
+const isVercelProduction = !!process.env.VERCEL && process.env.NODE_ENV === 'production';
+
+/**
  * Get Chrome executable path based on the environment
  */
 async function getChromePath() {
-  // Check if we're in a serverless environment
+  // Check if we're in a serverless environment like Vercel
   if (process.env.AWS_REGION || process.env.VERCEL) {
     try {
-      // Try to use chrome-aws-lambda's path
+      // If we're in Vercel production, we must use the browser endpoint instead
+      if (isVercelProduction) {
+        // Return null to force using the args without executablePath
+        // This signals to Puppeteer to use the remote browser
+        return null;
+      }
+      
+      // Try to use chrome-aws-lambda's path for other serverless environments
       return await chromium.executablePath;
     } catch (e) {
       console.error('Error getting chrome-aws-lambda executablePath:', e);
-      // Return a default path that Vercel might have
-      return process.env.CHROME_EXECUTABLE_PATH || '/opt/bin/chromium';
+      // Return null to force using browserless.io
+      return null;
     }
   }
   
@@ -107,5 +119,6 @@ async function getChromePath() {
 module.exports = {
   puppeteer,
   chromium,
-  getChromePath
+  getChromePath,
+  isVercelProduction
 }; 

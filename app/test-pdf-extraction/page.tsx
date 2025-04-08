@@ -90,16 +90,16 @@ export default function TestPdfExtraction() {
       <h1 className="text-2xl font-bold mb-6">Test PDF Text Extraction</h1>
       
       <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-6">
-        <h2 className="text-lg font-semibold text-blue-700 mb-2">New Implementation: Vercel-Compatible</h2>
-        <p className="mb-2">We&apos;ve implemented a Vercel-friendly PDF extraction approach using older puppeteer-core (v10.4.0) for build compatibility:</p>
+        <h2 className="text-lg font-semibold text-blue-700 mb-2">Environment-Aware PDF Extraction</h2>
+        <p className="mb-2">Our PDF extraction solution automatically adapts to your environment:</p>
         <ul className="list-disc ml-6 mb-3 text-blue-800">
-          <li>Converts PDF first page to high-quality image</li>
-          <li>Uses GPT-4o Vision for accurate text extraction</li>
-          <li>Uses compatible version that avoids private class field syntax</li>
-          <li>Works on both local development and Vercel deployment</li>
+          <li>Local development: Uses puppeteer for PDF-to-image conversion</li>
+          <li>Vercel deployment: Sends PDFs directly to GPT-4o (supported natively)</li>
+          <li>Works seamlessly in both environments without configuration</li>
+          <li>Produces consistent text extraction results</li>
         </ul>
         <a href="/test-pdf-extraction/puppeteer-test" className="text-blue-600 hover:text-blue-800 font-medium underline">
-          Try the Vercel-Compatible Extraction
+          Try PDF Text Extraction
         </a>
       </div>
       
