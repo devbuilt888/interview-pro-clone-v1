@@ -5,6 +5,15 @@
 
 // Import our serverless chrome helper first
 const serverlessHelper = require('./serverless-chrome');
+console.log('Loaded serverless-chrome helper');
+
+// Import debug tools
+const browserDebug = require('./browser-debug');
+console.log('Loaded browser-debug helper');
+
+// Run environment diagnostics
+console.log('Running environment diagnostics...');
+browserDebug.debugEnvironment();
 
 let puppeteer;
 let chromium;
@@ -67,7 +76,7 @@ try {
         '--disable-gpu'
       ],
       executablePath: null,
-      headless: true,
+      headless: serverlessHelper.isVercel ? 'new' : true,
       puppeteer: puppeteer // Add reference to puppeteer
     };
   }
@@ -99,7 +108,7 @@ try {
       '--disable-gpu'
     ],
     executablePath: null,
-    headless: true
+    headless: serverlessHelper.isVercel ? 'new' : true
   };
 }
 
@@ -107,11 +116,15 @@ try {
  * Enhanced check if we're in a Vercel environment
  * More reliable detection using multiple environment variables
  */
-const isVercelProduction = process.env.VERCEL === '1' || 
-                          !!process.env.VERCEL_URL || 
-                          !!process.env.VERCEL_REGION ||
-                          !!process.env.VERCEL_ENV ||
+const isVercelProduction = serverlessHelper.isVercel || 
                           process.env.NODE_ENV === 'production';
+
+// Log environment information for debugging
+console.log('Environment detection from webpack-ignore:', {
+  isVercelProduction,
+  isServerlessHelperVercel: serverlessHelper.isVercel,
+  NODE_ENV: process.env.NODE_ENV
+});
 
 /**
  * Get Chrome executable path based on the environment
@@ -161,19 +174,130 @@ async function getChromePath() {
  * Get optimized browser options for the current environment
  */
 async function getBrowserOptions() {
+  console.log('Getting browser options for environment type:', isVercelProduction ? 'Vercel' : 'Local');
+  
+  let options;
   if (isVercelProduction) {
-    return await serverlessHelper.getVercelChromeOptions();
+    options = await serverlessHelper.getVercelChromeOptions();
+  } else {
+    // Default options for local development
+    options = {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+      ],
+      headless: true,
+      executablePath: await getChromePath()
+    };
   }
   
-  // Default options for local development
-  return {
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox'
-    ],
-    headless: true,
-    executablePath: await getChromePath()
-  };
+  // Use debug helper to log browser configuration
+  browserDebug.logBrowserConfig(options);
+  
+  return options;
+}
+
+/**
+ * Launch a browser with enhanced error handling and fallbacks
+ */
+async function launchBrowser(options = null) {
+  console.log('Attempting to launch browser');
+  let browser = null;
+  
+  // Get options if not provided
+  options = options || await getBrowserOptions();
+  
+  try {
+    // Special handling for Vercel
+    if (isVercelProduction) {
+      console.log('Vercel environment detected, using direct Puppeteer launch');
+      
+      // We try to ensure Puppeteer uses the right binary in Vercel
+      const puppeteerPkg = require('puppeteer');
+      console.log('Using direct Puppeteer package, version detected:', puppeteerPkg.version || 'unknown');
+      
+      if (options && options.executablePath) {
+        console.log(`Launching with specified executablePath: ${options.executablePath}`);
+      } else {
+        console.log('No executablePath specified, using puppeteer default');
+        // Let's add a special case for headless mode in newer Puppeteer versions
+        if (typeof options.headless === 'boolean' && options.headless) {
+          options.headless = 'new';
+          console.log('Updated headless mode to "new" for compatibility with newer Puppeteer');
+        }
+      }
+      
+      try {
+        browser = await puppeteerPkg.launch(options);
+        console.log('Browser launched successfully with Puppeteer');
+        return browser;
+      } catch (vercelError) {
+        console.error('Failed to launch with Puppeteer in Vercel:', vercelError);
+        // No fallback, just rethrow
+        throw vercelError;
+      }
+    }
+    
+    // For non-Vercel environments, try all the different methods
+    
+    // First try: use chrome-aws-lambda's puppeteer if available
+    if (chromium && chromium.puppeteer) {
+      console.log('Trying to launch with chrome-aws-lambda puppeteer');
+      try {
+        browser = await chromium.puppeteer.launch(options);
+        console.log('Successfully launched browser with chrome-aws-lambda puppeteer');
+        return browser;
+      } catch (e) {
+        console.error('Failed to launch with chrome-aws-lambda puppeteer:', e);
+        // Continue to next approach
+      }
+    }
+    
+    // Second try: use standard puppeteer
+    if (!browser) {
+      console.log('Trying to launch with standard puppeteer');
+      try {
+        browser = await puppeteer.launch(options);
+        console.log('Successfully launched browser with standard puppeteer');
+        return browser;
+      } catch (e) {
+        console.error('Failed to launch with standard puppeteer:', e);
+        // Continue to fallback
+      }
+    }
+    
+    // Final fallback with minimal options
+    if (!browser) {
+      console.log('Trying minimal fallback options');
+      const fallbackOptions = {
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: isVercelProduction ? 'new' : true,
+        ignoreHTTPSErrors: true
+      };
+      
+      // Keep executable path if it exists
+      if (options.executablePath) {
+        fallbackOptions.executablePath = options.executablePath;
+      }
+      
+      // Try with chrome-aws-lambda first, then regular puppeteer
+      try {
+        if (chromium && chromium.puppeteer) {
+          browser = await chromium.puppeteer.launch(fallbackOptions);
+        } else {
+          browser = await puppeteer.launch(fallbackOptions);
+        }
+        console.log('Successfully launched browser with fallback options');
+        return browser;
+      } catch (finalError) {
+        console.error('All browser launch attempts failed:', finalError);
+        throw new Error('Failed to launch browser after multiple attempts: ' + finalError.message);
+      }
+    }
+  } catch (error) {
+    console.error('Error in launchBrowser:', error);
+    throw error;
+  }
 }
 
 // Export the modules
@@ -182,5 +306,6 @@ module.exports = {
   chromium,
   getChromePath,
   getBrowserOptions,
+  launchBrowser,
   isVercelProduction
 }; 

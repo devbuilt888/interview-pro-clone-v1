@@ -39,8 +39,8 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
-    "puppeteer": "10.4.0",
-    "puppeteer-core": "10.4.0",
+    "puppeteer": "^21.5.0",
+    "puppeteer-core": "^21.5.0",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
     "react-dom": "18.2.0",
@@ -73,14 +73,14 @@
     "canvas": "file:./canvas-pkg",
     "pdfjs-dist": "2.16.105",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "10.4.0",
-    "puppeteer": "10.4.0"
+    "puppeteer-core": "^21.5.0",
+    "puppeteer": "^21.5.0"
   },
   "overrides": {
     "canvas": "file:./canvas-pkg",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "10.4.0",
-    "puppeteer": "10.4.0"
+    "puppeteer-core": "^21.5.0",
+    "puppeteer": "^21.5.0"
   },
   "peerDependencies": {
     "canvas": "*"

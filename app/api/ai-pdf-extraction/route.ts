@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 
 // Dynamic import for webpack bundling issues
-const { puppeteer, chromium, getChromePath, getBrowserOptions, isVercelProduction } = require('./webpack-ignore');
+const { puppeteer, chromium, getChromePath, getBrowserOptions, launchBrowser, isVercelProduction } = require('./webpack-ignore');
 
 // Initialize the OpenAI client
 const openai = new OpenAI({
@@ -45,6 +45,7 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
     
     // Write the PDF buffer to a file
     fs.writeFileSync(pdfPath, pdfBuffer);
+    console.log('PDF file written to:', pdfPath);
     
     // Get optimized browser options for the current environment
     const options = await getBrowserOptions();
@@ -55,70 +56,56 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
     
     let browser;
     try {
-      // Launch browser with optimized settings
+      // Use our enhanced browser launcher with fallback mechanisms
       console.log('Launching browser...');
-      
-      // Try launch with appropriate puppeteer instance
-      try {
-        if (isVercelProduction && chromium && chromium.puppeteer) {
-          console.log('Using chrome-aws-lambda puppeteer');
-          browser = await chromium.puppeteer.launch(options);
-        } else {
-          console.log('Using standard puppeteer');
-          browser = await puppeteer.launch(options);
-        }
-      } catch (launchError: any) {
-        console.error('Browser launch failed:', launchError.message);
-        
-        // Try with minimal options as fallback
-        console.log('Retrying with minimal options');
-        const fallbackOptions: any = {
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-          headless: true
-        };
-        
-        // Keep executable path if available
-        if (options.executablePath) {
-          fallbackOptions.executablePath = options.executablePath;
-        }
-        
-        if (isVercelProduction && chromium && chromium.puppeteer) {
-          browser = await chromium.puppeteer.launch(fallbackOptions);
-        } else {
-          browser = await puppeteer.launch(fallbackOptions);
-        }
-      }
+      browser = await launchBrowser(options);
       
       if (!browser) {
-        throw new Error('Failed to launch browser');
+        throw new Error('Browser launch returned null');
       }
       
       console.log('Browser launched successfully');
       
       // Create a new page
       const page = await browser.newPage();
+      console.log('Browser page created');
       
       // Set viewport size
       await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 2 });
       
-      // Navigate to the PDF file using file:// protocol
-      await page.goto(`file://${pdfPath}`, {
-        waitUntil: 'networkidle0',
-        timeout: 60000
-      });
+      // Navigate to the PDF file using file:// protocol with proper error handling
+      console.log('Navigating to PDF at:', pdfPath);
+      try {
+        await page.goto(`file://${pdfPath}`, {
+          waitUntil: 'networkidle0',
+          timeout: 60000
+        });
+      } catch (navigationError: any) {
+        console.error('Navigation error:', navigationError.message);
+        // Continue anyway, as sometimes the navigation error is non-fatal
+      }
       
       // Wait a moment for PDF to render
-      await new Promise(r => setTimeout(r, 1000));
+      console.log('Waiting for PDF to render...');
+      await new Promise(r => setTimeout(r, 2000));
       
-      // Take a screenshot
-      await page.screenshot({ path: outputPath, fullPage: true });
+      // Take a screenshot with error handling
+      console.log('Taking screenshot to:', outputPath);
+      try {
+        await page.screenshot({ path: outputPath, fullPage: true });
+      } catch (screenshotError: any) {
+        console.error('Screenshot error:', screenshotError.message);
+        throw new Error(`Failed to take screenshot: ${screenshotError.message}`);
+      }
       
       // Close the browser
+      console.log('Closing browser');
       await browser.close();
       browser = null;
       
-      // Read the generated image
+      // Read the generated image with proper error handling
       if (fs.existsSync(outputPath)) {
+        console.log('Reading generated image');
         const imageBuffer = fs.readFileSync(outputPath);
         const base64Image = imageBuffer.toString('base64');
         
@@ -127,13 +114,15 @@ async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
           fs.unlinkSync(pdfPath);
           fs.unlinkSync(outputPath);
           fs.rmdirSync(tempDir);
+          console.log('Temporary files cleaned up');
         } catch (cleanupError) {
           console.error('Error cleaning up temporary files:', cleanupError);
+          // Continue even if cleanup fails
         }
         
         return base64Image;
       } else {
-        throw new Error('Image file was not created');
+        throw new Error('Image file was not created at path: ' + outputPath);
       }
     } catch (error) {
       console.error('Error in PDF-to-image conversion:', error);
