@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "postinstall": "node node_modules/puppeteer/install.js"
+    "lint": "next lint"
   },
   "dependencies": {
     "@livekit/agents": "^0.7.1",
@@ -22,6 +21,7 @@
     "ai": "^2.2.31",
     "autoprefixer": "10.4.15",
     "bufferutil": "^4.0.8",
+    "canvas": "^2.11.2",
     "canvas-shim": "file:./canvas-pkg",
     "chrome-aws-lambda": "10.1.0",
     "encoding": "^0.1.13",
@@ -39,8 +39,8 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "2.16.105",
     "postcss": "8.4.28",
-    "puppeteer": "^21.5.0",
-    "puppeteer-core": "^21.5.0",
+    "puppeteer": "19.7.2",
+    "puppeteer-core": "19.7.2",
     "react": "18.2.0",
     "react-chat-plugin": "^0.1.17",
     "react-dom": "18.2.0",
@@ -73,14 +73,14 @@
     "canvas": "file:./canvas-pkg",
     "pdfjs-dist": "2.16.105",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "^21.5.0",
-    "puppeteer": "^21.5.0"
+    "puppeteer-core": "19.7.2",
+    "puppeteer": "19.7.2"
   },
   "overrides": {
     "canvas": "file:./canvas-pkg",
     "chrome-aws-lambda": "10.1.0",
-    "puppeteer-core": "^21.5.0",
-    "puppeteer": "^21.5.0"
+    "puppeteer-core": "19.7.2",
+    "puppeteer": "19.7.2"
   },
   "peerDependencies": {
     "canvas": "*"

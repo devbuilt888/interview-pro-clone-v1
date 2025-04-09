@@ -11,9 +11,9 @@
     }
   },
   "env": {
-    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "false",
-    "VERCEL_PUPPETEER_ENABLED": "true",
-    "NODE_OPTIONS": "--max-old-space-size=3072"
+    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true",
+    "NODE_OPTIONS": "--max-old-space-size=3072",
+    "VERCEL_PDF_RENDERER": "built-in"
   },
   "headers": [
     {

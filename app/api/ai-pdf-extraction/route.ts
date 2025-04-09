@@ -4,7 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Dynamic import for webpack bundling issues
+// Import our Vercel-optimized PDF renderer
+const vercelPdfRenderer = require('./vercel-pdf-renderer');
+
+// Dynamic import for webpack bundling issues - only used in local development
 const { puppeteer, chromium, getChromePath, getBrowserOptions, launchBrowser, isVercelProduction } = require('./webpack-ignore');
 
 // Initialize the OpenAI client
@@ -16,15 +19,20 @@ const openai = new OpenAI({
 const MAX_PDF_SIZE = 20 * 1024 * 1024;
 
 /**
- * Convert PDF to image using a hybrid approach (local puppeteer or alternative methods)
+ * Convert PDF to image using appropriate renderer based on environment
  */
 async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
   try {
     console.log('Starting PDF conversion...');
     
-    // Always use the same method, whether on Vercel or local development
-    // This simplifies our approach and avoids compatibility issues
-    return await createImageFromPdf(pdfBuffer);
+    // Check if we're in Vercel environment
+    if (vercelPdfRenderer.isVercelEnv) {
+      console.log('Using Vercel-optimized PDF renderer');
+      return await convertPdfToImageVercel(pdfBuffer);
+    } else {
+      console.log('Using Puppeteer-based PDF renderer for local development');
+      return await createImageFromPdf(pdfBuffer);
+    }
   } catch (error) {
     console.error('Error converting PDF to image:', error);
     throw error;
@@ -32,7 +40,52 @@ async function convertPdfToImage(pdfBuffer: Buffer): Promise<string> {
 }
 
 /**
- * Universal method to convert PDF to image (works on both environments)
+ * Convert PDF to image using our Vercel-optimized renderer
+ */
+async function convertPdfToImageVercel(pdfBuffer: Buffer): Promise<string> {
+  try {
+    console.log('Using Vercel-optimized PDF renderer...');
+    
+    // Create a temporary directory for the PDF file
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-'));
+    const pdfPath = path.join(tempDir, 'document.pdf');
+    const outputPath = path.join(tempDir, 'page.png');
+    
+    // Write the PDF buffer to a file
+    fs.writeFileSync(pdfPath, pdfBuffer);
+    console.log('PDF file written to:', pdfPath);
+    
+    // Render the PDF to an image using our optimized renderer
+    await vercelPdfRenderer.renderPdfToPng(pdfPath, outputPath);
+    
+    // Check if the image was created
+    if (fs.existsSync(outputPath)) {
+      console.log('Successfully rendered PDF to image');
+      const imageBuffer = fs.readFileSync(outputPath);
+      const base64Image = imageBuffer.toString('base64');
+      
+      // Clean up temporary files
+      try {
+        fs.unlinkSync(pdfPath);
+        fs.unlinkSync(outputPath);
+        fs.rmdirSync(tempDir);
+        console.log('Temporary files cleaned up');
+      } catch (cleanupError) {
+        console.error('Error cleaning up temporary files:', cleanupError);
+      }
+      
+      return base64Image;
+    } else {
+      throw new Error('Failed to render PDF to image');
+    }
+  } catch (error) {
+    console.error('Error in Vercel PDF rendering:', error);
+    throw error;
+  }
+}
+
+/**
+ * Local development method to convert PDF to image using Puppeteer
  */
 async function createImageFromPdf(pdfBuffer: Buffer): Promise<string> {
   try {
